@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GGUF Benchmark — Strix Halo</title>
+<link rel="stylesheet" href="/web/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">GGUF Benchmark <span class="ver">v1.0</span></div>
+  <nav class="nav">
+    <a href="#status" data-view="status">① 状态</a>
+    <a href="#scan" data-view="scan">② 扫描</a>
+    <a href="#select" data-view="select">③ 勾选</a>
+    <a href="#config" data-view="config">④ 配置</a>
+    <a href="#progress" data-view="progress">⑤ 进度</a>
+    <a href="#report" data-view="report">⑥ 报告</a>
+  </nav>
+</header>
+
+<main class="container">
+
+  <!-- ① 启动 / 状态 -->
+  <section id="v-status" class="view">
+    <h2 class="view-title">启动与状态</h2>
+    <div class="card">
+      <div class="status-line"><span id="healthDot" class="dot dot-wait"></span>
+        <span id="healthText">正在启动后端…</span></div>
+      <div class="status-line">Python: <b id="pyVersion">—</b></div>
+      <div class="status-line">llama-server: <b id="llamaFound">—</b></div>
+      <div class="status-line">工具版本: <b id="toolVersion">—</b></div>
+    </div>
+    <div class="actions"><button class="btn btn-primary" data-goto="#scan">进入配置 →</button></div>
+  </section>
+
+  <!-- ② 目录扫描 -->
+  <section id="v-scan" class="view">
+    <h2 class="view-title">① 模型目录</h2>
+    <div class="card">
+      <div class="row">
+        <label>路径</label>
+        <input id="scanDir" class="input" type="text" placeholder="例如 D:/models 或 /Users/me/models">
+        <button id="scanBtn" class="btn btn-primary">扫描</button>
+      </div>
+      <div class="row">
+        <label class="check"><input id="scanRecursive" type="checkbox" checked> 递归扫描子目录</label>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">扫描结果 <span id="scanSummary" class="muted"></span></div>
+      <div id="scanResult" class="table-wrapper"></div>
+    </div>
+    <div class="actions"><button class="btn btn-primary" data-goto="#select">下一步 →</button></div>
+  </section>
+
+  <!-- ③ 模型勾选 -->
+  <section id="v-select" class="view">
+    <h2 class="view-title">③ 模型勾选</h2>
+    <div class="card">
+      <div class="row">
+        <button id="selectAll" class="btn">全选</button>
+        <button id="selectNone" class="btn">全不选</button>
+        <span class="muted">已选 <b id="selectedCount">0</b> 个</span>
+      </div>
+      <div id="selectResult" class="table-wrapper"></div>
+    </div>
+    <div class="actions"><button id="toConfig" class="btn btn-primary" disabled>下一步 →</button></div>
+  </section>
+
+  <!-- ④ 参数配置 -->
+  <section id="v-config" class="view">
+    <h2 class="view-title">④ 参数配置</h2>
+    <div class="card">
+      <div class="card-title">llama-server</div>
+      <div class="grid">
+        <div class="field"><label>可执行文件</label><input id="cfgLlamaPath" class="input" type="text" placeholder="C:/llama/llama-server.exe"></div>
+        <div class="field"><label>端口</label><input id="cfgPort" class="input" type="number" value="8080"></div>
+        <div class="field"><label>后端</label>
+          <select id="cfgBackend" class="input">
+            <option value="vulkan">vulkan</option>
+            <option value="cuda">cuda</option>
+            <option value="rocm">rocm</option>
+            <option value="metal">metal</option>
+            <option value="cpu">cpu</option>
+          </select>
+        </div>
+        <div class="field"><label>-ngl</label><input id="cfgNgl" class="input" type="number" value="99"></div>
+        <div class="field"><label>线程数</label><input id="cfgThreads" class="input" type="number" value="16"></div>
+        <div class="field"><label>芯片数</label><input id="cfgNChip" class="input" type="number" value="1"></div>
+        <div class="field wide"><label>额外参数</label><input id="cfgExtra" class="input" type="text" placeholder="--flash-attn --no-mmap"></div>
+        <div class="field"><label>运行器模式</label>
+          <select id="cfgRunnerMode" class="input">
+            <option value="auto">auto（自动探测）</option>
+            <option value="real">real（真实）</option>
+            <option value="mock">mock（合成数据）</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">测试维度</div>
+      <div class="field"><label>ctx 档位 (K)</label>
+        <div id="ctxLevels" class="chips"></div>
+      </div>
+      <div class="field"><label>input 档位 (K)</label>
+        <div id="inputLevels" class="chips"></div>
+      </div>
+      <div class="row">
+        <span class="muted">预计组合数（仅保留 input &lt; ctx）：<b id="comboCount">0</b> 组/模型 ·
+          已选模型 <b id="comboModels">0</b> 个 · 合计 <b id="comboTotal">0</b> 点</span>
+      </div>
+      <div class="grid">
+        <div class="field"><label>预热次数</label><input id="cfgWarmup" class="input" type="number" value="1"></div>
+        <div class="field"><label>正式重复</label><input id="cfgRepeat" class="input" type="number" value="3"></div>
+        <div class="field"><label>Decode 长度</label><input id="cfgOutputTokens" class="input" type="number" value="256"></div>
+        <div class="field"><label>连续失败跳过阈值</label><input id="cfgSkipFails" class="input" type="number" value="2"></div>
+        <div class="field"><label>单点超时(s)</label><input id="cfgTimeout" class="input" type="number" value="1800"></div>
+      </div>
+      <div class="field wide"><label>Prompt（留空使用内置中性长文本）</label>
+        <textarea id="cfgPrompt" class="input" rows="3" placeholder="自定义长文本，用于覆盖内置 prompt"></textarea>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">输出</div>
+      <div class="grid">
+        <div class="field"><label>输出目录</label><input id="cfgOutputDir" class="input" type="text" value="./reports"></div>
+        <div class="field"><label>&nbsp;</label>
+          <label class="check"><input id="cfgAutoOpen" type="checkbox" checked> 跑完自动打开总览</label>
+        </div>
+      </div>
+      <div class="row">
+        <button id="portCheckBtn" class="btn">检测端口</button>
+        <span id="portCheckMsg" class="muted"></span>
+      </div>
+    </div>
+
+    <div class="actions"><button id="startBtn" class="btn btn-primary btn-lg">开始测试</button></div>
+  </section>
+
+  <!-- ⑤ 测试进度 -->
+  <section id="v-progress" class="view">
+    <h2 class="view-title">⑤ 测试进度</h2>
+    <div class="card">
+      <div class="status-line">运行中… 模型 <b id="progModelIdx">0/0</b>: <b id="progModelName">—</b></div>
+      <div class="progress"><div id="progBar" class="progress-bar" style="width:0%"></div></div>
+      <div class="status-line"><b id="progPercent">0%</b> &nbsp; (<span id="progPoints">0/0</span> 点)</div>
+      <div class="status-line">当前: ctx=<b id="progCtx">—</b> &nbsp; input=<b id="progInput">—</b></div>
+      <div class="status-line">最近点: <span id="progLast">—</span></div>
+      <div class="status-line muted" id="progMessage">—</div>
+      <div class="actions"><button id="abortBtn" class="btn btn-danger">中断</button></div>
+    </div>
+  </section>
+
+  <!-- ⑥ 报告页 -->
+  <section id="v-report" class="view">
+    <h2 class="view-title">⑥ 报告</h2>
+    <div class="card">
+      <div class="row">
+        <label>报告</label>
+        <select id="reportSelect" class="input"></select>
+        <button id="reloadReports" class="btn">刷新列表</button>
+      </div>
+    </div>
+    <iframe id="reportFrame" class="report-frame" src="about:blank"></iframe>
+  </section>
+
+</main>
+
+<script src="/web/api.js"></script>
+<script src="/web/app.js"></script>
+</body>
+</html>

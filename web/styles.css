@@ -1,0 +1,120 @@
+/* GGUF Benchmark UI 样式 —— 复用报告 :root 变量，深色主题，零外链 */
+
+:root {
+  --bg: #1a1a2e;
+  --card-bg: #16213e;
+  --border: #2a2a4a;
+  --text: #e0e0e0;
+  --text-secondary: #a0a0b0;
+  --accent: #00d4aa;
+  --accent2: #7c83ff;
+  --red: #ff6b6b;
+  --green: #51cf66;
+  --yellow: #ffd93d;
+  --header-bg: #0f3460;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: var(--bg); color: var(--text); line-height: 1.6; min-height: 100vh;
+}
+
+/* ---- 顶栏 ---- */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  gap: 1rem; padding: 0.9rem 1.5rem;
+  background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+  border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10;
+}
+.brand { font-size: 1.15rem; font-weight: 700; color: var(--accent); }
+.brand .ver { color: var(--text-secondary); font-size: 0.8rem; font-weight: 400; }
+.nav { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.nav a {
+  color: var(--text-secondary); text-decoration: none; font-size: 0.86rem;
+  padding: 0.35rem 0.7rem; border-radius: 6px; border: 1px solid transparent;
+}
+.nav a:hover { color: var(--text); border-color: var(--border); }
+.nav a.active { color: var(--accent); border-color: var(--accent); background: rgba(0,212,170,0.08); }
+
+/* ---- 布局 ---- */
+.container { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+.view { display: none; }
+.view.active { display: block; }
+.view-title { font-size: 1.35rem; color: var(--accent); margin-bottom: 1rem; }
+
+.card {
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 1rem 1.25rem; margin-bottom: 1.25rem;
+}
+.card-title { font-size: 1rem; color: var(--accent2); font-weight: 600; margin-bottom: 0.8rem; }
+.muted { color: var(--text-secondary); font-size: 0.85rem; }
+
+/* ---- 行 / 网格 / 字段 ---- */
+.row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin: 0.4rem 0; }
+.row > label { color: var(--text-secondary); font-size: 0.86rem; min-width: 70px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.9rem 1.2rem; }
+.field { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.5rem; }
+.field.wide { grid-column: 1 / -1; }
+.field label { color: var(--text-secondary); font-size: 0.82rem; }
+
+.input {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 0.45rem 0.7rem; font-size: 0.9rem; width: 100%;
+  font-family: inherit;
+}
+.input:focus { outline: none; border-color: var(--accent); }
+textarea.input { resize: vertical; }
+
+.check { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--text-secondary); font-size: 0.86rem; }
+
+/* ---- 档位 chips ---- */
+.chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.chips label {
+  display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.82rem;
+  color: var(--text-secondary); border: 1px solid var(--border); border-radius: 6px;
+  padding: 0.25rem 0.55rem; cursor: pointer;
+}
+.chips label:has(input:checked) { border-color: var(--accent); color: var(--accent); }
+
+/* ---- 按钮 ---- */
+.btn {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 0.45rem 0.9rem; font-size: 0.88rem; cursor: pointer;
+}
+.btn:hover { border-color: var(--accent); }
+.btn-primary { background: var(--accent); color: #04231c; border-color: var(--accent); font-weight: 600; }
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-danger { background: rgba(255,107,107,0.15); color: var(--red); border-color: var(--red); }
+.btn-lg { padding: 0.6rem 1.4rem; font-size: 1rem; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.actions { display: flex; gap: 0.75rem; margin-top: 0.5rem; }
+
+/* ---- 状态点 ---- */
+.status-line { margin: 0.3rem 0; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 0.4rem; }
+.dot-ok { background: var(--green); }
+.dot-bad { background: var(--red); }
+.dot-wait { background: var(--yellow); }
+
+/* ---- 表格 ---- */
+.table-wrapper { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+thead { background: var(--header-bg); }
+th { padding: 0.6rem 0.9rem; text-align: left; color: var(--accent2); font-weight: 600; white-space: nowrap; }
+td { padding: 0.5rem 0.9rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+tr:hover { background: rgba(124,131,255,0.05); }
+tr.ignored { opacity: 0.45; }
+
+/* ---- 进度条 ---- */
+.progress { background: #0f1729; border: 1px solid var(--border); border-radius: 8px; height: 22px; overflow: hidden; margin: 0.6rem 0; }
+.progress-bar { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); width: 0; transition: width 0.3s ease; }
+
+/* ---- 报告 ---- */
+.report-frame { width: 100%; height: 78vh; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+
+@media (max-width: 768px) {
+  .nav { gap: 0.2rem; }
+  .row > label { min-width: auto; }
+}

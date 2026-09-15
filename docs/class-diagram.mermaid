@@ -1,0 +1,158 @@
+classDiagram
+    class BenchConfig {
+        +str scan_dir
+        +bool recursive
+        +str llama_server_path
+        +int port
+        +str gpu_backend
+        +list~str~ extra_args
+        +int threads
+        +int n_chip
+        +list~int~ ctx_levels
+        +list~int~ input_levels
+        +int warmup_runs
+        +int repeat_runs
+        +int output_tokens
+        +str precision_source
+        +str prompt_text
+        +str output_dir
+        +bool auto_open_overview
+        +int skip_after_fails
+        +str runner_mode
+    }
+    class BenchmarkPoint {
+        +str model_name
+        +str model_size
+        +str precision
+        +int n_chip
+        +int ctx_size
+        +int input_tokens
+        +int output_tokens
+        +float prefill_tps
+        +float decode_tps
+        +float vision_fps
+        +float prefill_time_ms
+        +float decode_time_ms
+        +bool success
+        +str error_msg
+        +str fail_reason
+        +bool skipped
+    }
+    class ModelMeta {
+        +str model_name
+        +str model_size
+        +str gguf_path
+        +str precision
+        +str precision_source
+        +int n_chip
+        +float file_size_mb
+        +bool selected
+        +str status
+    }
+    class HardwareInfo {
+        +str cpu_model
+        +str host_model
+        +float ram_gb
+        +str os_version
+        +str gpu
+        +str gpu_backend
+        +float uma_vram_gb
+    }
+    class TaskStatus {
+        +str task_id
+        +str state
+        +str current_model
+        +int model_index
+        +int model_total
+        +int current_ctx
+        +int current_input
+        +int points_done
+        +int points_total
+        +float percent
+        +BenchmarkPoint last_point
+        +int consec_fail
+        +str message
+    }
+    class RunResult {
+        +int prompt_tokens
+        +float prompt_ms
+        +int predicted_tokens
+        +float predicted_ms
+        +int exit_code
+        +bool timed_out
+        +str stderr_tail
+        +bool ok
+    }
+    class ModelScanner {
+        +scan(dir, recursive) list~ModelMeta~
+        +infer_precision(filename) str
+        +is_mmproj(filename) bool
+        +parse_size(filename) str
+    }
+    class PromptBuilder {
+        +str base_text
+        +build(target_tokens, runner) str
+    }
+    class HardwareCollector {
+        <<abstract>>
+        +collect() HardwareInfo
+    }
+    class LlamaServerRunner {
+        <<abstract>>
+        +BenchConfig config
+        +ModelMeta model
+        +int ctx_size
+        +start() void
+        +wait_ready(timeout) bool
+        +tokenize(text) int
+        +complete(prompt, n_predict) RunResult
+        +stop() void
+        +is_alive() bool
+    }
+    class MockRunner
+    class RealRunner
+    class MetricsParser {
+        +median(values) float
+        +classify_failure(exit_code, stderr, timed_out) str
+        +build_point(runs, meta, ctx, input_tokens, cfg) BenchmarkPoint
+    }
+    class BenchEngine {
+        +BenchConfig config
+        +build_matrix(ctx_levels, input_levels) dict
+        +run(models, on_event) void
+        +abort() void
+    }
+    class TaskManager {
+        +create(models, config) str
+        +get(task_id) TaskStatus
+        +abort(task_id) bool
+        +subscribe(task_id) AsyncIterator
+        +points(task_id, model) list~BenchmarkPoint~
+    }
+    class ConfigStore {
+        +load() BenchConfig
+        +save(patch) BenchConfig
+    }
+    class ReportBuilder {
+        +build_model(meta, points, hw, cfg) str
+        +build_overview(models, points, hw, cfg) str
+        +write(path, html) void
+    }
+
+    BenchEngine --> BenchConfig
+    BenchEngine --> LlamaServerRunner : uses
+    BenchEngine --> MetricsParser : uses
+    BenchEngine --> PromptBuilder : uses
+    BenchEngine --> HardwareCollector : uses
+    BenchEngine ..> BenchmarkPoint : produces
+    LlamaServerRunner <|-- MockRunner
+    LlamaServerRunner <|-- RealRunner
+    LlamaServerRunner ..> RunResult : returns
+    HardwareCollector <|-- WindowsHardwareCollector
+    HardwareCollector <|-- GenericHardwareCollector
+    TaskManager --> BenchEngine : owns
+    TaskManager ..> TaskStatus : exposes
+    ConfigStore ..> BenchConfig : persists
+    ModelScanner ..> ModelMeta : produces
+    ReportBuilder ..> BenchmarkPoint : consumes
+    ReportBuilder --> HardwareInfo : consumes

@@ -1,0 +1,70 @@
+sequenceDiagram
+    autonumber
+    actor U as 用户
+    participant B as 浏览器(web/app.js)
+    participant API as FastAPI(api.py)
+    participant TM as TaskManager
+    participant EN as BenchEngine
+    participant RN as LlamaServerRunner
+    participant MP as MetricsParser
+    participant RB as ReportBuilder
+
+    Note over U,B: 启动：start.bat → pythonw run.py → Uvicorn(127.0.0.1:8765) → 自动开浏览器
+    B->>API: GET /api/health (A1)
+    API-->>B: {ok, python_version, llama_server_found}
+
+    U->>B: 输入目录，点「扫描」
+    B->>API: POST /api/scan {dir, recursive} (A4)
+    API->>API: ModelScanner.scan() 忽略 mmproj、推断精度
+    API-->>B: {models:[ModelMeta...]}
+
+    U->>B: 勾选模型 + 填配置
+    B->>API: PUT /api/config {patch} (A3)
+    API->>API: ConfigStore.save()
+    B->>API: POST /api/tasks/preview {models, config} (A7)
+    API->>EN: build_matrix(ctx_levels, input_levels) 仅 input<ctx
+    EN-->>API: {total_points, per_model, matrix}
+    API-->>B: 预计点数（前端显示）
+
+    U->>B: 点「开始测试」
+    B->>API: POST /api/port-check {port} (A5)
+    API-->>B: {in_use:false}
+    B->>API: POST /api/tasks {models, config} (A8)
+    API->>TM: create(task_id, models, config)
+    TM->>EN: asyncio.to_thread(engine.run)  后台串行
+    API-->>B: {ok, task_id}
+
+    B->>API: GET /api/tasks/{id}/events (A10, SSE)
+    loop 每模型
+        Note over EN: 记录启动参数(决策10)
+        loop 每个 ctx 档
+            EN->>RN: start(ctx) ; wait_ready()
+            RN-->>EN: ready / crash
+            loop 每个 input (input<ctx)
+                EN->>RN: tokenize(prompt) 校准真实 token
+                EN->>RN: complete() 预热×1
+                EN->>RN: complete() 正式×N
+                RN-->>EN: RunResult
+                EN->>MP: build_point(runs,...) 取中位数
+                MP-->>EN: BenchmarkPoint(success, fail_reason)
+                EN->>TM: 更新 TaskStatus + 广播 SSE
+                TM-->>B: data: {percent, current_ctx, last_point}
+                alt 连续失败 >=2
+                    EN->>EN: 标 skipped，break 全部档位
+                end
+            end
+            EN->>RN: stop()  释放端口
+        end
+        EN->>RB: build_model(meta, points, hw, cfg, launch_cmds)
+        RB-->>EN: 写 reports/<model>_<prec>.html + logs + points.json
+    end
+    EN->>RB: build_overview(all models, all points, hw, cfg)
+    RB-->>EN: 写 reports/overview.html
+    EN->>TM: state=done, 广播完成
+    TM-->>B: SSE done
+    B->>API: GET /api/reports (A13)
+    API-->>B: reports 列表
+    Note over B: auto_open_overview=true → iframe 打开 overview.html（A15）
+    U->>B: 报告内筛选/排序（纯客户端 JS）
+
+    Note over U,B: 中断分支：POST /api/tasks/{id}/abort (A11) → TM.abort() → EN.abort() → 当前 RN.stop() → 进程树终止

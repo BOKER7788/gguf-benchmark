@@ -1,0 +1,33 @@
+# ---- 虚拟环境 ----
+.venv/
+venv/
+env/
+
+# ---- Python 缓存与构建产物 ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- 运行期配置（含本机扫描结果与绝对路径，不公开）----
+config.json
+
+# ---- 运行产物（报告 / 日志 / points.json）----
+# 演示报告已单独复制到 docs/demo/，可公开查看
+reports/
+
+# ---- 内部工作区数据 ----
+.workbuddy/
+
+# ---- 测试产物（可再生成）----
+tests/_results.json
+
+# ---- 编辑器 / 操作系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp

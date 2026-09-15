@@ -1,0 +1,4 @@
+# GGUF Benchmark — 仅 3 个第三方依赖（刻意最小化）
+fastapi>=0.110,<1.0          # Web 框架（含 Pydantic v2）
+uvicorn[standard]>=0.27      # ASGI 服务器（含 SSE/websockets 支持）
+httpx>=0.26                  # 调用 llama-server /health /tokenize /completion
