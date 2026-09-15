@@ -1,132 +1,173 @@
-# GGUF Benchmark — Minisforum Strix Halo 本地大模型批量测试工具
+# GGUF Benchmark
 
-一键「扫描 → 勾选 → 配置 → 双维度压测 → 生成离线可视化报告」。专为
-Minisforum Strix Halo（Ryzen AI MAX+ 395 / Radeon 8060S）调优与对外评测设计。
+**本地大模型批量性能测试工具** —— 一键扫描模型 → 双维度压测 → 生成可分享的离线可视化报告。
 
-> **先看效果**：打开 [`docs/demo/overview.html`](docs/demo/overview.html)（单文件、零依赖，
-> 可直接在浏览器打开）。把鼠标放在曲线上滑动，会出现十字准线与数值浮层。
-> ⚠️ 该报告由 `runner_mode=mock` 生成，tps 均为**合成数据**，非真机性能。
+> **by Boker** · MIT License · 基于 [llama.cpp](https://github.com/ggml-org/llama.cpp)
+
+> **先看效果**：打开 [`docs/demo/overview.html`](docs/demo/overview.html)（单文件、零依赖，浏览器直接打开）。
+> **把鼠标放在曲线上滑动**，会出现十字准线与数值浮层；表头可点击排序。
+> ⚠️ 演示报告由 `mock` 生成，数字是**合成数据**，不代表任何真机性能。
+
+---
+
+## 怎么用（只需要两步）
+
+### 第 1 步：双击 `start.bat`
+
+- 如果电脑上没有 Python，脚本会**问你一句**，按 `Y` 它会用 `winget` 自动装好并配置 PATH。
+- 第一次运行会装几个依赖（约 1-3 分钟），窗口里**会显示进度**，不会黑屏卡住。
+- 装好后脚本会在后台启动服务，并**自动打开浏览器**。
+
+### 第 2 步：照着页面上的「三步上手」做
+
+浏览器打开后，第一页就是**三步上手向导**，每一步都带完成状态：
+
+| 步骤 | 页面会帮你做什么 |
+|---|---|
+| ① 运行环境 | 自动检测 Python 版本与依赖是否就绪 |
+| ② 推理引擎 | 点「**一键获取 llama.cpp**」自动下载 Windows Vulkan 版并解压、回填路径（约 200MB）；已有的话点「手动选择文件」 |
+| ③ 模型文件 | 点「**选择文件夹…**」用系统窗口挑模型目录，不用手打路径 |
+
+然后：
+
+1. **④ 配置** 页只有几个要看的项 —— GPU 后端、线程数等已按你的机器预填好，收在「高级设置」里，一般不用动；
+2. 页面会显示**预计耗时**（完整测试可能要几十分钟到几小时）；
+3. 建议先点「**先试跑 1 个档位（约 1 分钟）**」确认路径和模型都没问题；
+4. 再点「开始完整测试」。跑完自动打开报告，也能点「打开报告所在文件夹」。
+
+**想停止服务**：双击 `stop.bat`。
+
+---
 
 ## 特性
 
-- **零构建前端**：原生 HTML + 原生 JS，由 FastAPI 静态挂载，目标机只需 Python，无需 Node。
-- **双维度矩阵**：ctx 档 `[4000,8000,16000,32000,64000,128000,256000]` × input 档
-  `[250,500,1000,2000,4000,8000,16000,32000,64000,128000]`，**仅保留 `input < ctx`**（默认 **49 组/模型**）。
+- **零基础可用**：原生文件夹选择、一键获取 llama.cpp、按机器预填参数、耗时预估、先试跑再全量。
+- **不会拿假数据骗你**：找不到 llama-server 时，界面与报告顶部都会出现**醒目警示**，明确告诉你这是模拟数据。
+- **双维度矩阵**：ctx 档 `4/8/16/32/64/128/256K` × input 档 `0.25/0.5/1/2/4/…/128K`，仅保留 `input < ctx`（默认 **49 组/模型**）。
 - **失败跳过状态机**：同一模型连续 2 次失败 → 剩余档位标记「已跳过」；成功一次即清零。
-- **失败归因**：`OOM_GPU / MODEL_FAIL / TIMEOUT / OTHER`，OOM 触发报告顶部中文提示。
-- **完全离线报告**：单文件自包含 HTML（内联 CSS/JS/SVG，零 CDN），含曲线图、可折叠参数说明、
-  汇总表（精度/芯片数可排序）、硬件信息与启动参数留档。
-- **曲线悬停数值标签**：鼠标在曲线图上滑动即出现十字准线与浮层，显示该档位的 Ctx / Input
-  与各条曲线的实测 tps；贴近右/下边缘自动翻转，被筛选隐藏的曲线不参与提示。
-- **mock 注入**：`runner_mode = auto|real|mock`。开发机（macOS，无 llama.cpp）零配置即可全链路跑通。
+- **失败归因 + 人话解释**：`OOM_GPU / MODEL_FAIL / TIMEOUT / OTHER`，每条都配「这是什么意思 / 你该怎么做」。
+- **完全离线报告**：单文件自包含 HTML（内联 CSS/JS/SVG，**零 CDN**），含 Prefill/Decode 曲线、可折叠参数说明、10 列可排序汇总表、硬件信息与启动参数留档。
+- **曲线悬停数值标签**：十字准线 + 跟随浮层；被筛选隐藏的曲线不参与提示。
+- **零构建前端**：原生 HTML + 原生 JS，目标机**只需 Python，无需 Node**。
+- **可复现**：报告记录每档 ctx 的完整 llama.cpp 启动参数。
 
-## 安装
-
-```
-python -m venv .venv
-.venv/bin/pip install -r requirements.txt      # Windows: .venv\Scripts\pip
-```
-
-## 运行
-
-- Windows 11：双击 `start.bat`（后台拉起后端并打开浏览器），停止用 `stop.bat`。
-- 跨平台（开发自测）：
-
-```
-python run.py                 # 默认 http://127.0.0.1:8765
-python run.py --no-browser    # 不自动开浏览器
-```
-
-离线重建报告：
-
-```
-python run.py --report-only reports/<model>/points.json --out out.html
-python run.py --report-only reports/all_points.json --out overview.html --overview
-```
-
-## 目录结构
-
-```
-start.bat             Windows 一键启动（后台服务 + 就绪探测 + 开浏览器）
-stop.bat              Windows 一键停止（按端口 8765 结束后端进程树）
-run.py                程序入口（含 --report-only）
-requirements.txt      3 个依赖
-config/               默认配置
-ggufbench/            后端包（api/engine/runners/report/...）
-web/                  零构建前端（index.html + app.js + api.js + styles.css）
-reports/              运行产物（报告 / 日志 / points.json）
-tests/                回归套件（run_all.py，零第三方依赖）
-```
-
-## 测试
-
-```
-.venv/bin/python tests/run_all.py          # Linux/macOS
-.venv\Scripts\python tests\run_all.py      # Windows
-```
-
-A~H 共 8 个模块，覆盖数据矩阵、模型识别、失败状态机、报告正确性、前端逻辑、
-API 契约与鲁棒性、工程卫生、曲线悬停交互。
-
-## 跨平台说明（macOS 开发 → Windows 部署）
-
-| 能力 | macOS（开发机） | Windows 11（目标机） |
-|---|---|---|
-| 后端服务 / 报告生成 / 前端 UI | ✅ 完全可用 | ✅ 完全可用 |
-| 硬件信息采集 | 通用采集（`sysctl`/`platform`） | PowerShell CIM（CPU/主机/内存/系统/GPU） |
-| llama-server 进程管理 | `start_new_session` + `os.killpg` | `CREATE_NEW_PROCESS_GROUP` + `taskkill /F /T` |
-| 真实推理吞吐 | ❌ 无 llama.cpp，走 mock | ✅ 需自备 `llama-server.exe` |
-
-批处理脚本已按 Windows 要求处理：**CRLF 行尾** + **`chcp 65001`（保证中文不乱码）** +
-**`pythonw.exe` + 非 `/B` 启动（关窗口不中断后台服务）**。
+---
 
 ## 常见问题（Windows）
 
 ### 报错 `Python was not found; run without arguments to install from the Microsoft Store...`
 
-然后在 `start.bat` 里看到 `[ERROR] 未能找到可用的 Python 解释器`。
-
 **原因**：Windows 10/11 自带 Microsoft Store 的「**应用执行别名**」——
 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe`（以及 `python3.exe`）。
-它是 **0 字节占位程序**，被调用时只打印上面那行英文提示就退出；而 `WindowsApps`
-**默认在 PATH 中**，因此 `where python` 会命中它。也就是说：**`where python` 成功 ≠ 有可用的解释器**。
+它是 **0 字节占位程序**，被调用时只打印那行英文就退出；而 `WindowsApps`
+**默认在 PATH 中**，所以 `where python` 会命中它。也就是说：**`where python` 成功 ≠ 有可用的解释器**。
 
-`start.bat` 已改为对每个候选**实际执行并校验输出是否为 `3.11` 这样的版本号**，
-并主动跳过 `WindowsApps` 路径（避免误触发 Microsoft Store）。若即使用了新版脚本仍报错，
-说明机器上确实没有可用的 Python，或仅剩商店别名，请按下表处理。
-
-**三种修复方式**
+新版 `start.bat` 已改为对每个候选**实际执行并校验输出是否为 `3.11` 这样的版本号**，
+并主动跳过 `WindowsApps` 路径（避免误触发 Microsoft Store）。若仍报错，说明确实没有可用 Python：
 
 | 方式 | 适用场景 | 操作 |
 |---|---|---|
-| **A. 安装 Python 3.11+**（推荐） | 从未装过 Python | 到 <https://www.python.org/downloads/windows/> 下载 **Windows installer (64-bit)**，安装第一屏**务必勾选 `Add python.exe to PATH`** |
-| **B. 关闭应用执行别名** | Python 已装，但被商店别名抢占了 `python` 这个名字 | 设置 → 应用 → 高级应用设置 → **应用执行别名** → 把 `python.exe`、`python3.exe` 两个开关都**关掉** |
-| **C. 用 `py` 启动器** | 多版本共存 / PATH 混乱 | `py` 位于 `C:\Windows\`，**不会被商店别名遮蔽**。脚本已优先尝试 `py -3`；手动验证：`py -3 --version` |
+| **A. 让脚本自动装**（推荐） | 从未装过 Python | 重新运行 `start.bat`，在提示处按 `Y`，脚本会用 `winget` 装好 |
+| **B. 关闭应用执行别名** | 已装但被别名抢占 | 设置 → 应用 → 高级应用设置 → **应用执行别名** → 关掉 `python.exe`、`python3.exe` |
+| **C. 用 `py` 启动器** | 多版本共存 / PATH 混乱 | `py` 位于 `C:\Windows\`，**不会被别名遮蔽**；脚本已优先尝试它。自检：`py -3 --version` |
 
-**验证修复是否生效**
+**验证**：
 
 ```bat
-where python
-python --version
-py -3 --version
+python --version      :: 能打印 Python 3.11.x+ 即可
+py -3 --version       :: 上一条失败但这条正常 → 属于方式 B
 ```
 
-- `python --version` 能打印 `Python 3.11.x`（或更高）→ 已修好
-- 若 `python --version` 仍输出那行英文、但 `py -3 --version` 正常 → 属于方式 B，去关掉别名
-- 然后双击 `start.bat`，正常应看到 `[INFO] Python 解释器:` 与 `[INFO] Python 版本 :` 两行
+### 大 ctx 档位直接 OOM
 
-### 其他
+在工具里勾选 **64K 及以上**的上下文档位时，页面会就地提示：核显若没在 **BIOS 里划分足够显存**，
+这些档位会因显存不足失败。报告会把这类失败归因为 `OOM_GPU` 并给出处理建议。
 
-- **大 ctx 档位直接 OOM**：先在 BIOS 划分 UMA 显存（报告会把这类失败归因为 `OOM_GPU` 并提示）。
-- **关掉黑窗口后服务停了**：请用 `start.bat` 启动（内部用 `pythonw.exe` 且不加 `/B`，与当前控制台解耦）；
-  停止请用 `stop.bat`。
+### 关掉黑窗口后服务停了
 
-## 目标机冒烟（Strix Halo / Windows 11）
+请用 `start.bat` 启动（内部用 `pythonw.exe` 且**不加 `/B`**，与当前控制台解耦）。
+停止请用 `stop.bat`。
 
-1. 安装 Python 3.11+，双击 `start.bat`。
-2. ② 扫描目录选择 GGUF 所在目录；③ 勾选模型；④ 配置 `llama-server.exe` 路径与端口。
-3. 点「开始测试」→ 观察进度 → 完成后自动打开 `reports/overview.html`。
-4. 在报告曲线上滑动鼠标查看各档位数值标签。
+### 报告里的数字看起来是假的
 
-> 注意：真实吞吐/OOM 判定需在目标机验证；开发机 mock 仅用于流程与报告结构验证。
-> 大 ctx 档位需先在 BIOS 划分 UMA 显存，否则会 OOM（报告会归因为 `OOM_GPU` 并给出提示）。
+如果界面或报告顶部出现了「**模拟数据（mock）**」的橙色警示，说明当时没有可用的
+llama-server，本次没有真正调用推理。请按第 2 步配置好 `llama-server.exe` 后重跑。
+
+---
+
+## 开发 / 手动运行
+
+适用于 Linux / macOS，或想手动控制的 Windows 用户。
+
+```bash
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt      # Windows: .venv\Scripts\pip
+.venv/bin/python run.py                        # http://127.0.0.1:8765
+.venv/bin/python run.py --no-browser           # 不自动开浏览器
+```
+
+**离线重建报告**（已有 `points.json` 时无需重跑推理）：
+
+```bash
+.venv/bin/python run.py --report-only reports/all_points.json --overview --out overview.html
+```
+
+**打包「开箱即用」发布 ZIP**（只收录 git 跟踪的文件）：
+
+```bash
+.venv/bin/python scripts/make_release_zip.py    # 输出到 dist/
+```
+
+### 测试
+
+```bash
+.venv/bin/python tests/run_all.py               # Linux/macOS
+.venv\Scripts\python tests\run_all.py           # Windows
+```
+
+9 个模块 / **292 条断言**，零第三方依赖（不依赖 pytest）：
+
+| 模块 | 覆盖 |
+|---|---|
+| A 数据与矩阵 | 49 组矩阵、`input < ctx` 裁剪、边界排除 |
+| B 模型识别 | 分片 GGUF 归并、mmproj 过滤、精度推断、跨目录隔离 |
+| C 失败跳过状态机 | 连续失败、成功清零（反向用例）、崩溃重启一次 |
+| D 报告正确性 | 14 字段对齐、10 列表头、零 CDN、OOM 横幅 |
+| E 前端逻辑 | 10 列排序、筛选、摘要卡、曲线显隐 |
+| F API 契约与鲁棒性 | A1~A15、串行 409、abort 资源释放、非法输入 400 |
+| G 工程卫生 | 依赖最小化、无循环导入、Windows 批处理兼容性 |
+| H 曲线悬停交互 | Node 真实派发 mousemove/mouseleave，断言寻点、行数上限、边界翻转 |
+| I 零基础友好度 | 人话错误、试跑矩阵、mock 预判、品牌词清除、前端交互接入 |
+
+### 目录结构
+
+```
+start.bat / stop.bat    Windows 一键启动 / 停止
+run.py                  程序入口（含 --report-only）
+requirements.txt        3 个依赖（fastapi / uvicorn / httpx）
+ggufbench/              后端包
+  ├ friendly.py         原生对话框、一键获取 llama.cpp、硬件推荐
+  ├ engine.py           矩阵裁剪、串行编排、每档重启、失败状态机、ETA
+  ├ api.py              A1~A15 + 小白友好接口
+  └ report/             曲线、模板、报告组装
+web/                    零构建前端（index.html + app.js + api.js + styles.css）
+scripts/                发布打包
+docs/                   PRD / 架构 / QA 报告 / 上手体验审计 / 演示报告
+tests/                  回归套件（run_all.py）
+```
+
+### 跨平台说明
+
+| 能力 | macOS / Linux | Windows 11 |
+|---|---|---|
+| 后端 / 报告 / 前端 | ✅ | ✅ |
+| 原生文件夹选择 | `osascript` / `zenity` / tkinter | PowerShell `FolderBrowserDialog` |
+| 硬件信息采集 | `platform` / `sysctl` | PowerShell CIM（CPU/主机/内存/系统/GPU） |
+| llama-server 进程管理 | `setsid` + `killpg` | `CREATE_NEW_PROCESS_GROUP` + `taskkill /F /T` |
+| 一键获取 llama.cpp | 需手动下载（官方只提供 Windows 构建） | ✅ 自动下载解压 |
+
+---
+
+## 许可
+
+[MIT License](LICENSE) © 2026 Boker

@@ -1,4 +1,4 @@
-# ARCHITECTURE — Minisforum Strix Halo 本地大模型批量测试工具（GGUF Benchmark）
+# ARCHITECTURE — 本地大模型批量性能测试工具（GGUF Benchmark）
 
 > 版本：v1.0 ｜ 作者：高见远（架构师）｜ 状态：定稿（可交付工程师直接编码）
 > 上游输入：`docs/PRD.md` v1.0 ｜ 黄金样本：`http://127.0.0.1/395-result.html`（本地路径 `395-result.html`）
@@ -29,7 +29,7 @@
 
 | # | 难点 | 应对方案 |
 |---|---|---|
-| D1 | 开发机无 Windows / 无 llama.cpp / 无 Strix Halo，真实指标不可得 | **运行器抽象**：`LlamaServerRunner` 接口 + `MockRunner`(确定性假数据) / `RealRunner`(子进程)；`runner_mode=auto` 自动探测降级 |
+| D1 | 开发机无 Windows / 无 llama.cpp / 无 目标机，真实指标不可得 | **运行器抽象**：`LlamaServerRunner` 接口 + `MockRunner`(确定性假数据) / `RealRunner`(子进程)；`runner_mode=auto` 自动探测降级 |
 | D2 | Windows 硬件信息无法在 macOS 采集 | **采集器抽象**：`WindowsHardwareCollector`(PowerShell CIM) / `GenericHardwareCollector`(platform 降级/mock)，保证报告硬件区块始终有值 |
 | D3 | 报告必须与黄金样本**逐字段**对齐且零 CDN 单文件 | ReportBuilder 复用黄金样本 `<style>`、SVG 生成公式、客户端 JS 结构；DATA 内联进 `<script>`；总览与单模型共用同一渲染函数 |
 | D4 | 双维度矩阵正确裁剪 + 每档重启 + 连续失败跳过 | 显式 `build_matrix()` 裁剪函数 + 显式失败状态机（见 §7） |

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -12,13 +13,21 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import __version__
+from . import AUTHOR, PROJECT_URL, __version__
 from .config_store import ConfigStore
 from .engine import BenchEngine
-from .errors import ApiError, ErrorCode, error_body, ok_body
+from .errors import HINTS, ApiError, ErrorCode, error_body, hint_for, ok_body
+from .friendly import (
+    LlamaDownloader,
+    open_in_file_manager,
+    pick_directory,
+    pick_file,
+    recommended_config,
+)
 from .logging_utils import get_logger
 from .models import BenchConfig, BenchmarkPoint, ModelMeta
 from .report.builder import ReportBuilder
+from .runners import resolve_runner_mode
 from .runners.base import is_port_in_use
 from .scanner import ModelScanner
 from .task_manager import TaskManager
@@ -54,6 +63,24 @@ class CreateTaskRequest(BaseModel):
 
 class OverviewBuildRequest(BaseModel):
     task_id: str = ""
+
+
+# ---- 面向零基础用户的新增请求模型（P0-3 / P0-6 / P0-11）----
+class DialogRequest(BaseModel):
+    title: str = ""
+    patterns: str = ""
+
+
+class OpenFolderRequest(BaseModel):
+    path: str = ""
+
+
+class LlamaDownloadRequest(BaseModel):
+    dest_dir: str = ""
+
+
+class LlamaCheckRequest(BaseModel):
+    path: str = ""
 
 
 # ----------------------------- 辅助 -----------------------------
@@ -104,6 +131,10 @@ def register_routes(app: FastAPI, store: ConfigStore, task_manager: TaskManager)
             python_version=sys.version.split()[0],
             llama_server_found=_llama_found(cfg),
             version=__version__,
+            author=AUTHOR,
+            project_url=PROJECT_URL,
+            output_dir=str(_output_dir(store)),
+            platform=sys.platform,
         )
 
     # ---- A2 读取配置（直接返回 BenchConfig）----
@@ -234,6 +265,94 @@ def register_routes(app: FastAPI, store: ConfigStore, task_manager: TaskManager)
         path = out_dir / "overview.html"
         builder.write(path, html)
         return ok_body(path=f"/reports/{path.name}")
+
+    # =====================================================================
+    #  面向零基础用户的辅助接口（P0/P1）
+    # =====================================================================
+
+    _downloader = LlamaDownloader()
+
+    # ---- 原生文件夹选择（P0-6）----
+    @app.post("/api/dialog/pick-dir")
+    async def dialog_pick_dir(req: DialogRequest) -> dict:
+        path = await asyncio.to_thread(pick_directory, req.title or "请选择文件夹")
+        return ok_body(path=path, cancelled=path is None)
+
+    # ---- 原生文件选择（P0-6）----
+    @app.post("/api/dialog/pick-file")
+    async def dialog_pick_file(req: DialogRequest) -> dict:
+        patterns = req.patterns or "可执行文件|*.exe|所有文件|*.*"
+        path = await asyncio.to_thread(pick_file, req.title or "请选择文件", patterns)
+        return ok_body(path=path, cancelled=path is None)
+
+    # ---- 在文件管理器里打开（P0-11）----
+    @app.post("/api/open-folder")
+    async def open_folder(req: OpenFolderRequest) -> dict:
+        target = req.path.strip() or str(_output_dir(store))
+        ok = await asyncio.to_thread(open_in_file_manager, target)
+        if not ok:
+            raise ApiError(ErrorCode.E_DIALOG, f"无法打开路径: {target}")
+        return ok_body(path=target)
+
+    # ---- 按本机硬件推荐配置（P0-7）----
+    @app.get("/api/hardware/recommend")
+    async def hardware_recommend() -> dict:
+        rec = await asyncio.to_thread(recommended_config)
+        return ok_body(**rec)
+
+    # ---- llama-server 可用性校验（P0-6：选完立刻验证）----
+    @app.post("/api/llama/check")
+    async def llama_check(req: LlamaCheckRequest) -> dict:
+        path = Path(req.path).expanduser() if req.path.strip() else None
+        if path is None or not path.exists():
+            return ok_body(exists=False, runnable=False, message="文件不存在")
+        version = ""
+        runnable = True
+        try:
+            proc = await asyncio.to_thread(
+                subprocess.run,
+                [str(path), "--version"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+            version = (proc.stdout or proc.stderr or "").strip().splitlines()[0][:120]
+        except (OSError, subprocess.SubprocessError) as exc:
+            runnable = False
+            version = str(exc)[:160]
+        return ok_body(exists=True, runnable=runnable, version=version, message=version)
+
+    # ---- 一键获取 llama.cpp（P0-3）----
+    @app.post("/api/llama/download")
+    async def llama_download(req: LlamaDownloadRequest) -> dict:
+        state = _downloader.start(req.dest_dir or None)
+        return ok_body(**state)
+
+    @app.get("/api/llama/download/status")
+    async def llama_download_status() -> dict:
+        return ok_body(**_downloader.status())
+
+    # ---- 错误与失败原因的人话解释（P1-2）----
+    @app.get("/api/hints")
+    async def hints() -> dict:
+        return ok_body(hints=HINTS)
+
+    @app.get("/api/hints/{key}")
+    async def hint_detail(key: str) -> dict:
+        return ok_body(hint=hint_for(key))
+
+    # ---- 本次是否会降级为 mock（P0-8，开始前就能警示）----
+    @app.get("/api/runner-mode")
+    async def runner_mode() -> dict:
+        cfg = store.load()
+        effective = resolve_runner_mode(cfg)
+        return ok_body(
+            configured=cfg.runner_mode,
+            effective=effective,
+            will_use_mock=effective == "mock",
+            llama_server_path=cfg.llama_server_path,
+        )
 
 
 def _output_dir(store: ConfigStore) -> Path:

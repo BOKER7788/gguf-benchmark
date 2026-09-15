@@ -28,6 +28,7 @@ MODULES = [
     ("F", "API 契约与鲁棒性", "test_F_api"),
     ("G", "工程卫生", "test_G_hygiene"),
     ("H", "曲线悬停数值标签", "test_H_tooltip"),
+    ("I", "零基础用户友好度", "test_I_friendly"),
 ]
 
 

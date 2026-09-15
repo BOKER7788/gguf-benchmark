@@ -1,4 +1,4 @@
-# PRD — Minisforum Strix Halo 本地大模型批量测试工具（GGUF Benchmark）
+# PRD — 本地大模型批量性能测试工具（GGUF Benchmark）
 
 > 版本：v1.0 ｜ 作者：许清楚（产品经理）｜ 状态：定稿（8 项设计决策 + 10 项默认值已由用户确认）
 > 语言：中文 ｜ 技术栈：Python 后端 + 浏览器 UI ｜ 报告：完全离线单文件 HTML（零 CDN）
@@ -8,7 +8,7 @@
 
 ## 1. 产品目标与一句话定位
 
-**一句话定位**：一个跑在 Windows 11 上的「一键扫描 → 勾选模型 → 双维度压测 → 自动生成离线可视化报告」的 llama.cpp 本地推理基准测试工具，专为 Minisforum Strix Halo 机器调优与对外评测而设计。
+**一句话定位**：一个跑在 Windows 11 上的「一键扫描 → 勾选模型 → 双维度压测 → 自动生成离线可视化报告」的 llama.cpp 本地推理基准测试工具，专为本地大模型场景 机器调优与对外评测而设计。
 
 **产品目标（3 个正交目标）**
 
@@ -24,7 +24,7 @@
 
 | 用户角色 | 场景 | 关注点 |
 |---|---|---|
-| **Minisforum 产品经理** | 新机型/新固件发布前，批量验证各尺寸模型（0.8B~35B）在 Strix Halo 上的可用性 | 哪些模型 / 上下文档位能跑、能跑多快、有无 OOM |
+| **硬件评测工程师** | 新机型/新固件发布前，批量验证各尺寸模型（0.8B~35B）在 目标机 上的可用性 | 哪些模型 / 上下文档位能跑、能跑多快、有无 OOM |
 | **硬件评测工程师** | 出评测内容，需要可复现的吞吐曲线与对比表 | 曲线图、可离线分享的报告、启动参数留档（可复现） |
 | **本机开发者/调参者**（次要） | 验证某个量化精度（Q8 vs Q4）或 UMA 显存划分对性能的影响 | 精度区分、芯片数、显存不足 vs 真跑不动的失败归因 |
 
@@ -112,7 +112,7 @@
 
 ```
 ┌───────────────────────────────────────────────┐
-│  Strix Halo GGUF Benchmark                     │
+│  GGUF Benchmark                     │
 │  ● 后端已连接 (http://127.0.0.1:8765)          │
 │  Python 3.11+ ✓   llama-server: 未配置 ✗       │
 │                                                │
@@ -187,7 +187,7 @@
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│  Qwen3.5 Benchmark @ Strix Halo                              │
+│  Benchmark Report                              │
 │  生成时间: ... | 工具: GGUF Benchmark v1.0 | llama.cpp 后端   │
 │  [ ▾ 参数说明（点击展开/收起） ]  ← <details class="intro">   │
 ├────────────────────────────────────────────────────────────┤
@@ -203,7 +203,7 @@
 │     芯片数|状态]  ← 表头可点击排序                             │
 │    ...（按 model,ctx 各一张表）                                │
 ├────────────────────────────────────────────────────────────┤
-│  硬件: AMD Ryzen AI MAX+ 395 / Radeon 8060S / 内存 64GB /Win11 │
+│  硬件: AMD <CPU 型号> / <GPU 型号> / 内存 64GB /Win11 │
 │  启动参数: llama-server -m ... -c 32000 -ngl 99 --threads 16   │
 └────────────────────────────────────────────────────────────┘
 ```
@@ -285,11 +285,11 @@
   "$id": "HardwareInfo",
   "type": "object",
   "properties": {
-    "cpu_model":      { "type": "string", "example": "AMD Ryzen AI MAX+ 395" },
-    "host_model":     { "type": "string", "example": "Minisforum MS-A2 / 主机型号" },
+    "cpu_model":      { "type": "string", "example": "AMD <CPU 型号>" },
+    "host_model":     { "type": "string", "example": "主机型号" },
     "ram_gb":         { "type": "number",  "example": 64 },
     "os_version":     { "type": "string", "example": "Windows 11 Pro 24H2 (26100)" },
-    "gpu":            { "type": "string", "example": "Radeon 8060S (Strix Halo)" },
+    "gpu":            { "type": "string", "example": "<GPU 型号>" },
     "gpu_backend":    { "type": "string", "example": "Vulkan RADV" },
     "uma_vram_gb":    { "type": "number", "description": "BIOS 划分的 UMA 显存，用于 OOM 归因提示" }
   }
@@ -413,14 +413,14 @@ generate overview.html; auto open
 
 ## 9. 验收标准的环境约束（重要）
 
-> **开发机是 macOS，无 Windows / 无 llama.cpp / 无 Strix Halo 核显。** 真实推理性能数据无法在开发机验证。
+> **开发机是 macOS，无 Windows / 无 llama.cpp / 无 AMD 核显。** 真实推理性能数据无法在开发机验证。
 
 因此验收分两层：
 
 | 层级 | 可验证内容 | 方法 |
 |---|---|---|
 | **可验证（开发机）** | ① 全链路闭环（扫描→勾选→配置→mock 执行→报告生成）可跑通；② 报告 HTML **逐字段**与黄金样本对齐（14 字段渲染、SVG 结构、筛选/排序、折叠区块、零 CDN）；③ 失败跳过、失败归因、双维度裁剪、token 校准等**逻辑**用 mock 数据断言 | 用 mock `llama-server`（返回固定 tps）跑端到端；与 `395-result.html` 逐字段 diff |
-| **不可验证（需目标机）** | ④ 真实吞吐数值；⑤ 真实 OOM 触发与 UMA 归因；⑥ 真实模型加载失败判定 | 交付时在 Strix Halo（Windows 11）上由用户执行冒烟测试；PRD 中这些项标注为「目标机验收」 |
+| **不可验证（需目标机）** | ④ 真实吞吐数值；⑤ 真实 OOM 触发与 UMA 归因；⑥ 真实模型加载失败判定 | 交付时在 目标机（Windows 11）上由用户执行冒烟测试；PRD 中这些项标注为「目标机验收」 |
 
 **结论**：P0「报告与逻辑」以开发机 mock 为准；P0「真实性能/失败判定」以目标机冒烟为准，开发阶段不得声称已验证真实性能。
 

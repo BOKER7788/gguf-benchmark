@@ -100,6 +100,23 @@ class TaskStatus(BaseModel):
     consec_fail: int = 0
     message: str = ""
 
+    # ---- 面向普通用户的进度信息（P0-9 耗时预估 / P0-8 mock 提示）----
+    runner_mode_effective: Literal["real", "mock"] = "real"
+    """实际生效的运行器类型。``auto`` 降级到 mock 时这里会是 ``mock``，
+    UI 与报告据此显示「本次为模拟数据」警示。"""
+    elapsed_s: float = 0.0
+    """已用时（秒）。"""
+    eta_s: float = 0.0
+    """预计剩余时间（秒）；0 表示尚不足以估算。"""
+    work_total: float = 0.0
+    """总工作量（按输入 token 数加权，比单纯点数更贴近真实耗时）。"""
+    work_done: float = 0.0
+    """已完成工作量。"""
+    report_paths: list[str] = Field(default_factory=list)
+    """生成的报告绝对路径（UI 提供「打开文件夹」）。"""
+    output_dir: str = ""
+    """报告的绝对输出目录。"""
+
 
 class BenchConfig(BaseModel):
     """测试与运行配置。
@@ -129,6 +146,13 @@ class BenchConfig(BaseModel):
     output_dir: str = "./reports"
     auto_open_overview: bool = True
     skip_after_fails: int = 2
+
+    # ---- 面向普通用户（P0-10 试跑 / P1-1 BIOS 显存提醒）----
+    quick_test: bool = False
+    """``True`` 时只跑「最小 ctx 档位 × 最小 input 档位」一个点，
+    约 1 分钟，用于在正式压测前确认 llama-server 路径、模型加载与报告链路都正常。"""
+    warn_large_ctx: bool = True
+    """勾选大 ctx 档位时是否在前端提示「需先在 BIOS 划分核显显存」。"""
 
     # ---- 运行期扩展键 ----
     runner_mode: Literal["auto", "real", "mock"] = "auto"

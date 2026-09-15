@@ -22,6 +22,20 @@ def _looks_like_real_server(config: BenchConfig) -> bool:
     return candidate.exists()
 
 
+def resolve_runner_mode(config: BenchConfig) -> str:
+    """解析 ``runner_mode`` 最终会落到 ``real`` 还是 ``mock``。
+
+    与 :func:`make_runner` 使用同一套判定逻辑，供引擎/UI 在跑之前就知道
+    会不会降级（P0-8：必须让用户知道本次是不是模拟数据）。
+    """
+    mode = config.runner_mode
+    if mode == "mock":
+        return "mock"
+    if mode == "real":
+        return "real"
+    return "real" if _looks_like_real_server(config) else "mock"
+
+
 def make_runner(
     config: BenchConfig,
     model: ModelMeta,
@@ -51,5 +65,6 @@ __all__ = [
     "MockRunner",
     "RealRunner",
     "make_runner",
+    "resolve_runner_mode",
     "is_port_in_use",
 ]

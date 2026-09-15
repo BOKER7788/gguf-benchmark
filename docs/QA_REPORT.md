@@ -16,7 +16,7 @@
 
 ## 2. 环境与方法
 
-- Python 3.13.12（项目 venv `.venv/bin/python`）；Node v22（前端逻辑单测）；macOS（无 Windows/llama.cpp/Strix Halo）
+- Python 3.13.12（项目 venv `.venv/bin/python`）；Node v22（前端逻辑单测）；macOS（无 Windows/llama.cpp/AMD 核显）
 - 真实推理路径无法运行：以 `runner_mode=mock` 验证全链路；real 路径仅做**代码级审查**
 - 用例框架：零依赖自研 harness（`tests/_harness.py`），可重复运行
 - 运行方式：`cd tests && ../.venv/bin/python run_all.py`（生成 `tests/_results.json`），`python make_report.py` 生成本报告
@@ -305,7 +305,7 @@
 
 ## 8. 遗留风险 / 无法验证项
 
-1. **真实推理路径未运行**（无 Windows/llama.cpp/Strix Halo）：RealRunner 的进程树终止（`taskkill /T`、`os.killpg`）、`/tokenize`/`/completion` timings 解析、Vulkan 后端行为仅做代码级审查，未经运行验证。
+1. **真实推理路径未运行**（无 Windows/llama.cpp/AMD 核显）：RealRunner 的进程树终止（`taskkill /T`、`os.killpg`）、`/tokenize`/`/completion` timings 解析、Vulkan 后端行为仅做代码级审查，未经运行验证。
 2. **mock 数据非真实性能**：报告的 tps 数值来自合成公式，仅供流程验证，不代表真机性能。
 3. **Windows 专属**：`start.bat`、PowerShell CIM 硬件采集、`CREATE_NEW_PROCESS_GROUP` 未在 Windows 实测。
 4. **报告客户端 JS 依赖浏览器**：本报告用 Node + DOM stub 做逻辑单测，未做真实浏览器渲染（视觉/交互）验证。

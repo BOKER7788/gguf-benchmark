@@ -115,7 +115,7 @@ def main() -> int:
     L("")
     L("## 2. 环境与方法")
     L("")
-    L("- Python 3.13.12（项目 venv `.venv/bin/python`）；Node v22（前端逻辑单测）；macOS（无 Windows/llama.cpp/Strix Halo）")
+    L("- Python 3.13.12（项目 venv `.venv/bin/python`）；Node v22（前端逻辑单测）；macOS（无 Windows/llama.cpp/AMD 核显）")
     L("- 真实推理路径无法运行：以 `runner_mode=mock` 验证全链路；real 路径仅做**代码级审查**")
     L("- 用例框架：零依赖自研 harness（`tests/_harness.py`），可重复运行")
     L("- 运行方式：`cd tests && ../.venv/bin/python run_all.py`（生成 `tests/_results.json`），`python make_report.py` 生成本报告")
@@ -181,7 +181,7 @@ def main() -> int:
     L("")
     L("## 8. 遗留风险 / 无法验证项")
     L("")
-    L("1. **真实推理路径未运行**（无 Windows/llama.cpp/Strix Halo）：RealRunner 的进程树终止（`taskkill /T`、"
+    L("1. **真实推理路径未运行**（无 Windows/llama.cpp/AMD 核显）：RealRunner 的进程树终止（`taskkill /T`、"
       "`os.killpg`）、`/tokenize`/`/completion` timings 解析、Vulkan 后端行为仅做代码级审查，未经运行验证。")
     L("2. **mock 数据非真实性能**：报告的 tps 数值来自合成公式，仅供流程验证，不代表真机性能。")
     L("3. **Windows 专属**：`start.bat`、PowerShell CIM 硬件采集、`CREATE_NEW_PROCESS_GROUP` 未在 Windows 实测。")

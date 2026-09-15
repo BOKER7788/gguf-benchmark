@@ -19,6 +19,12 @@ config.json
 # 演示报告已单独复制到 docs/demo/，可公开查看
 reports/
 
+# ---- 打包产物 ----
+dist/
+
+# ---- 自动下载的推理引擎（体积很大，不入库）----
+llama.cpp/
+
 # ---- 内部工作区数据 ----
 .workbuddy/
 

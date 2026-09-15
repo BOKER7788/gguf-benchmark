@@ -8,7 +8,9 @@ from __future__ import annotations
 import json
 from html import escape
 
+from .. import AUTHOR
 from ..models import BenchConfig, BenchmarkPoint, HardwareInfo, ModelMeta
+from ..runners import resolve_runner_mode
 from .chart import render_chart_svg
 
 # ---------------------------------------------------------------------------
@@ -134,6 +136,14 @@ tr.failed td { color: var(--red); }
   background: rgba(255, 107, 107, 0.12); border: 1px solid var(--red);
   color: var(--red); padding: 0.75rem 1rem; border-radius: 8px;
   margin-bottom: 1.5rem; font-size: 0.9rem;
+}
+.mock-banner {
+  background: rgba(124, 131, 255, 0.14); border: 1px solid var(--accent2);
+  color: #c9cdff; padding: 0.75rem 1rem; border-radius: 8px;
+  margin-bottom: 1.5rem; font-size: 0.92rem; line-height: 1.7;
+}
+.mock-banner code {
+  background: rgba(0, 0, 0, 0.3); padding: 0.1rem 0.35rem; border-radius: 4px;
 }
 .hardware {
   background: var(--card-bg); border: 1px solid var(--border);
@@ -596,12 +606,86 @@ def hardware_html(
 
 
 def footer_html() -> str:
-    """页脚。"""
+    """页脚（含作者署名）。
+
+    刻意不写入项目 URL：报告要保持「除 SVG 命名空间外不含任何外部 URL」
+    这一**可 grep 验证**的强保证，便于离线分发与审计。
+    """
     return (
         '<div class="footer">'
-        "GGUF Benchmark &mdash; 完全离线、零 CDN 单文件报告<br>"
-        "数据由本机 llama.cpp 后端实测；mock 模式为合成数据，仅供流程验证。"
+        f"GGUF Benchmark &mdash; by {escape(AUTHOR)}<br>"
+        "完全离线、零 CDN 单文件报告。数据由本机 llama.cpp 后端实测。"
         "</div>"
+    )
+
+
+def mock_banner_html(cfg: BenchConfig) -> str:
+    """mock 模式警示条（P0-8）。
+
+    ``auto`` 在找不到 llama-server 时会静默降级到 mock。若不显式警示，
+    用户会把合成数据当成自己机器的真实性能 —— 这是代价最大的误解。
+    """
+    if resolve_runner_mode(cfg) != "mock":
+        return ""
+    return (
+        '<div class="mock-banner">'
+        "<b>⚠️ 本次报告是模拟数据（mock），不代表真机性能。</b><br>"
+        "未检测到可用的 llama-server，本次没有调用真实推理，"
+        "表中的 tps 与耗时均为合成值，仅用于验证流程与报告样式。<br>"
+        "要获得真实数据：在工具「参数配置」里填入 <code>llama-server.exe</code> 路径后重新运行。"
+        "</div>"
+    )
+
+
+def how_to_read_html(points: list[BenchmarkPoint]) -> str:
+    """报告顶部「这份报告怎么看」结论层（P1-4）。"""
+    ok = [p for p in points if getattr(p, "success", False)]
+    if not ok:
+        return (
+            '<div class="intro" style="border-color:var(--red)">'
+            '<div style="color:var(--red);font-weight:600;margin-bottom:.5rem">'
+            "本次没有任何成功的数据点</div>"
+            '<div class="intro-item"><span>常见原因：模型文件不完整、llama-server 路径不对、'
+            "或显存不足。请查看下方汇总表中的失败原因列。</span></div></div>"
+        )
+
+    best_prefill = max(ok, key=lambda p: p.prefill_tps or 0)
+    # 最大 ctx 且成功的点，用于给出「可用上限」结论
+    max_ctx_ok = max(ok, key=lambda p: p.ctx_size)
+    oom = [p for p in points if (getattr(p, "fail_reason", "") or "") == "OOM_GPU"]
+    vision = any((p.vision_fps or 0) > 0 for p in ok)
+
+    lines = [
+        ("Prefill 越高越好", "它是把输入喂进模型的速度，决定长提示词的等待时间。"),
+        ("Decode 曲线越平越好", "曲线越平说明长上下文下生成速度衰减越小。"),
+        ("绿色 OK 失败为红色", "红色行代表该组合未跑通；点开「状态」列可看具体原因。"),
+    ]
+    facts = [
+        f"最高 Prefill：{best_prefill.prefill_tps:,.0f} tps"
+        f"（ctx={best_prefill.ctx_size // 1000}K, input={best_prefill.input_tokens / 1000:g}k）",
+        f"成功跑通的最大上下文档位：{max_ctx_ok.ctx_size // 1000}K",
+    ]
+    if not vision:
+        facts.append("本报告未包含视觉（VLM）数据，Vision 列显示 0 / -")
+
+    items = "".join(
+        f'<div class="intro-item"><b>{escape(t)}</b><br><span>{escape(d)}</span></div>'
+        for t, d in lines
+    )
+    fact_items = "".join(
+        f'<div class="intro-item"><span style="color:var(--accent)">{escape(f)}</span></div>'
+        for f in facts
+    )
+    oom_html = ""
+    if oom:
+        oom_html = (
+            '<div class="intro-item" style="grid-column:1/-1">'
+            f'<b style="color:var(--red)">检测到 {len(oom)} 个显存不足（OOM）数据点</b><br>'
+            "<span>建议：调低上下文档位、换更小的量化版本，或在 BIOS 中为核显划分更多显存后重测。</span></div>"
+        )
+    return (
+        '<details class="intro" open><summary>这份报告怎么看（点击展开 / 收起）</summary>'
+        f'<div class="intro-grid">{items}{fact_items}{oom_html}</div></details>'
     )
 
 
@@ -651,7 +735,9 @@ def render_report_html(
     )
     parts.append(header_html(title, generated_at, tool_name, tool_version, llama_version))
     parts.append('<div class="container">')
+    parts.append(mock_banner_html(cfg))
     parts.append(oom_banner_html(points))
+    parts.append(how_to_read_html(points))
     parts.append(intro_html(cfg))
     parts.append(controls_html())
     parts.append('<div class="summary" id="summaryCards"></div>')

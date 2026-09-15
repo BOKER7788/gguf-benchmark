@@ -3,15 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GGUF Benchmark — Strix Halo</title>
+<title>GGUF Benchmark — 本地大模型性能测试</title>
 <link rel="stylesheet" href="/web/styles.css">
 </head>
 <body>
 <header class="topbar">
-  <div class="brand">GGUF Benchmark <span class="ver">v1.0</span></div>
+  <div class="brand">GGUF Benchmark <span class="ver" id="brandVer">—</span>
+    <span class="by">by Boker</span></div>
   <nav class="nav">
-    <a href="#status" data-view="status">① 状态</a>
-    <a href="#scan" data-view="scan">② 扫描</a>
+    <a href="#start" data-view="start">① 开始</a>
+    <a href="#scan" data-view="scan">② 选模型</a>
     <a href="#select" data-view="select">③ 勾选</a>
     <a href="#config" data-view="config">④ 配置</a>
     <a href="#progress" data-view="progress">⑤ 进度</a>
@@ -21,32 +22,97 @@
 
 <main class="container">
 
-  <!-- ① 启动 / 状态 -->
-  <section id="v-status" class="view">
-    <h2 class="view-title">启动与状态</h2>
+  <!-- ① 开始 / 上手向导 -->
+  <section id="v-start" class="view">
+    <h2 class="view-title">开始</h2>
+
+    <div id="mockWarn" class="banner banner-warn" style="display:none">
+      <b>⚠️ 当前没有可用的 llama-server，本次只能生成「模拟数据」。</b>
+      <div class="banner-sub">模拟数据用于预览报告样式，<b>不代表你机器的真实性能</b>。
+        要测真实性能，请完成下面第 2 步。</div>
+    </div>
+
     <div class="card">
+      <div class="card-title">三步上手</div>
+      <ol class="steps" id="onboardSteps">
+        <li class="step" id="step1">
+          <span class="step-dot" id="step1Dot"></span>
+          <div class="step-body">
+            <b>准备好运行环境</b>
+            <div class="muted" id="step1Text">检查 Python 与依赖…</div>
+          </div>
+        </li>
+        <li class="step" id="step2">
+          <span class="step-dot" id="step2Dot"></span>
+          <div class="step-body">
+            <b>获取推理引擎 llama.cpp</b>
+            <div class="muted" id="step2Text">—</div>
+            <div class="row" style="margin-top:.5rem">
+              <button id="dlLlamaBtn" class="btn btn-primary">一键获取 llama.cpp（约 200MB）</button>
+              <button id="pickLlamaBtn" class="btn">我已装好，手动选择文件</button>
+            </div>
+            <div class="dl-progress" id="dlProgress" style="display:none">
+              <div class="progress"><div id="dlBar" class="progress-bar" style="width:0%"></div></div>
+              <div class="muted" id="dlText">—</div>
+            </div>
+          </div>
+        </li>
+        <li class="step" id="step3">
+          <span class="step-dot" id="step3Dot"></span>
+          <div class="step-body">
+            <b>准备模型文件（.gguf）</b>
+            <div class="muted" id="step3Text">—</div>
+          </div>
+        </li>
+      </ol>
+      <div class="actions"><button class="btn btn-primary" data-goto="#scan">进入下一步 →</button></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">环境状态</div>
       <div class="status-line"><span id="healthDot" class="dot dot-wait"></span>
         <span id="healthText">正在启动后端…</span></div>
       <div class="status-line">Python: <b id="pyVersion">—</b></div>
       <div class="status-line">llama-server: <b id="llamaFound">—</b></div>
+      <div class="status-line">报告输出目录: <b id="outDir">—</b></div>
       <div class="status-line">工具版本: <b id="toolVersion">—</b></div>
     </div>
-    <div class="actions"><button class="btn btn-primary" data-goto="#scan">进入配置 →</button></div>
   </section>
 
-  <!-- ② 目录扫描 -->
+  <!-- ② 模型目录 -->
   <section id="v-scan" class="view">
-    <h2 class="view-title">① 模型目录</h2>
+    <h2 class="view-title">② 选择模型文件夹</h2>
     <div class="card">
       <div class="row">
-        <label>路径</label>
-        <input id="scanDir" class="input" type="text" placeholder="例如 D:/models 或 /Users/me/models">
-        <button id="scanBtn" class="btn btn-primary">扫描</button>
+        <button id="pickDirBtn" class="btn btn-primary">选择文件夹…</button>
+        <input id="scanDir" class="input input-wide" type="text"
+               placeholder="也可以直接粘贴路径，例如 D:\models">
+        <button id="scanBtn" class="btn">扫描</button>
       </div>
       <div class="row">
-        <label class="check"><input id="scanRecursive" type="checkbox" checked> 递归扫描子目录</label>
+        <label class="check"><input id="scanRecursive" type="checkbox" checked> 包含子文件夹</label>
       </div>
     </div>
+
+    <div class="card" id="modelGuide">
+      <div class="card-title">还没有模型文件？</div>
+      <div class="muted">本工具测试的是 <b>.gguf</b> 格式的模型文件。流程是：</div>
+      <ol class="plain-list">
+        <li>在模型网站搜索「<b>模型名 GGUF</b>」，例如 <code>Qwen3 GGUF</code>；</li>
+        <li>在结果里选一个量化版本下载 —— 想要<b>速度快、省显存</b>就选 <code>Q4_K_M</code>，
+            想要<b>精度更高</b>就选 <code>Q8_0</code>（但更吃显存）；</li>
+        <li>把下载到的 <code>.gguf</code> 文件放进<b>同一个文件夹</b>；</li>
+        <li>回到上面点「选择文件夹…」选中它，再点「扫描」。</li>
+      </ol>
+      <div class="muted">
+        常用模型站：
+        <a href="https://huggingface.co/models?search=GGUF" target="_blank" rel="noreferrer">Hugging Face</a>
+        ·
+        <a href="https://modelscope.cn/models?name=GGUF" target="_blank" rel="noreferrer">ModelScope（国内，速度快）</a>
+      </div>
+      <div class="muted">大模型动辄几 GB 到几十 GB，下载会比较久；建议先用一个最小的模型把流程跑通。</div>
+    </div>
+
     <div class="card">
       <div class="card-title">扫描结果 <span id="scanSummary" class="muted"></span></div>
       <div id="scanResult" class="table-wrapper"></div>
@@ -56,7 +122,7 @@
 
   <!-- ③ 模型勾选 -->
   <section id="v-select" class="view">
-    <h2 class="view-title">③ 模型勾选</h2>
+    <h2 class="view-title">③ 勾选要测试的模型</h2>
     <div class="card">
       <div class="row">
         <button id="selectAll" class="btn">全选</button>
@@ -71,92 +137,143 @@
   <!-- ④ 参数配置 -->
   <section id="v-config" class="view">
     <h2 class="view-title">④ 参数配置</h2>
-    <div class="card">
-      <div class="card-title">llama-server</div>
-      <div class="grid">
-        <div class="field"><label>可执行文件</label><input id="cfgLlamaPath" class="input" type="text" placeholder="C:/llama/llama-server.exe"></div>
-        <div class="field"><label>端口</label><input id="cfgPort" class="input" type="number" value="8080"></div>
-        <div class="field"><label>后端</label>
-          <select id="cfgBackend" class="input">
-            <option value="vulkan">vulkan</option>
-            <option value="cuda">cuda</option>
-            <option value="rocm">rocm</option>
-            <option value="metal">metal</option>
-            <option value="cpu">cpu</option>
-          </select>
-        </div>
-        <div class="field"><label>-ngl</label><input id="cfgNgl" class="input" type="number" value="99"></div>
-        <div class="field"><label>线程数</label><input id="cfgThreads" class="input" type="number" value="16"></div>
-        <div class="field"><label>芯片数</label><input id="cfgNChip" class="input" type="number" value="1"></div>
-        <div class="field wide"><label>额外参数</label><input id="cfgExtra" class="input" type="text" placeholder="--flash-attn --no-mmap"></div>
-        <div class="field"><label>运行器模式</label>
-          <select id="cfgRunnerMode" class="input">
-            <option value="auto">auto（自动探测）</option>
-            <option value="real">real（真实）</option>
-            <option value="mock">mock（合成数据）</option>
-          </select>
-        </div>
-      </div>
+
+    <div id="mockWarn2" class="banner banner-warn" style="display:none">
+      <b>⚠️ 未设置 llama-server 路径 —— 直接开始只会得到「模拟数据」。</b>
+      <div class="banner-sub">请点下面的「选择文件」指定 <code>llama-server.exe</code>，
+        或回到「① 开始」点「一键获取 llama.cpp」。</div>
     </div>
 
     <div class="card">
-      <div class="card-title">测试维度</div>
-      <div class="field"><label>ctx 档位 (K)</label>
-        <div id="ctxLevels" class="chips"></div>
-      </div>
-      <div class="field"><label>input 档位 (K)</label>
-        <div id="inputLevels" class="chips"></div>
-      </div>
-      <div class="row">
-        <span class="muted">预计组合数（仅保留 input &lt; ctx）：<b id="comboCount">0</b> 组/模型 ·
-          已选模型 <b id="comboModels">0</b> 个 · 合计 <b id="comboTotal">0</b> 点</span>
-      </div>
-      <div class="grid">
-        <div class="field"><label>预热次数</label><input id="cfgWarmup" class="input" type="number" value="1"></div>
-        <div class="field"><label>正式重复</label><input id="cfgRepeat" class="input" type="number" value="3"></div>
-        <div class="field"><label>Decode 长度</label><input id="cfgOutputTokens" class="input" type="number" value="256"></div>
-        <div class="field"><label>连续失败跳过阈值</label><input id="cfgSkipFails" class="input" type="number" value="2"></div>
-        <div class="field"><label>单点超时(s)</label><input id="cfgTimeout" class="input" type="number" value="1800"></div>
-      </div>
-      <div class="field wide"><label>Prompt（留空使用内置中性长文本）</label>
-        <textarea id="cfgPrompt" class="input" rows="3" placeholder="自定义长文本，用于覆盖内置 prompt"></textarea>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">输出</div>
-      <div class="grid">
-        <div class="field"><label>输出目录</label><input id="cfgOutputDir" class="input" type="text" value="./reports"></div>
-        <div class="field"><label>&nbsp;</label>
-          <label class="check"><input id="cfgAutoOpen" type="checkbox" checked> 跑完自动打开总览</label>
+      <div class="card-title">推理引擎</div>
+      <div class="field">
+        <label>llama-server 可执行文件</label>
+        <div class="row">
+          <input id="cfgLlamaPath" class="input input-wide" type="text"
+                 placeholder="点右侧「选择文件」，或粘贴完整路径">
+          <button id="pickLlamaBtn2" class="btn">选择文件…</button>
         </div>
+        <div class="muted" id="llamaCheckMsg">—</div>
       </div>
-      <div class="row">
+      <div class="field">
+        <label>端口</label>
+        <input id="cfgPort" class="input input-narrow" type="number" value="8080">
         <button id="portCheckBtn" class="btn">检测端口</button>
         <span id="portCheckMsg" class="muted"></span>
       </div>
     </div>
 
-    <div class="actions"><button id="startBtn" class="btn btn-primary btn-lg">开始测试</button></div>
+    <details class="card advanced" id="advancedBox">
+      <summary>高级设置（一般不用改，默认已按你的机器调好）</summary>
+      <div class="grid">
+        <div class="field"><label>GPU 后端</label>
+          <select id="cfgBackend" class="input">
+            <option value="vulkan">vulkan（AMD / Intel 核显推荐）</option>
+            <option value="cuda">cuda（NVIDIA 独显）</option>
+            <option value="rocm">rocm（AMD 独显 Linux）</option>
+            <option value="metal">metal（Apple Silicon）</option>
+            <option value="cpu">cpu（仅用 CPU，最慢）</option>
+          </select>
+          <div class="muted">GPU 卸载层数 -ngl：
+            <input id="cfgNgl" class="input input-tiny" type="number" value="99"></div>
+        </div>
+        <div class="field"><label>CPU 线程数</label>
+          <input id="cfgThreads" class="input" type="number" value="16"></div>
+        <div class="field"><label>芯片数（多卡填实际数量）</label>
+          <input id="cfgNChip" class="input" type="number" value="1"></div>
+        <div class="field wide"><label>额外启动参数（不懂就留空）</label>
+          <input id="cfgExtra" class="input" type="text" placeholder="--flash-attn --no-mmap"></div>
+        <div class="field"><label>运行器模式</label>
+          <select id="cfgRunnerMode" class="input">
+            <option value="auto">auto（推荐）</option>
+            <option value="real">real（强制真实推理）</option>
+            <option value="mock">mock（合成数据，仅预览报告用）</option>
+          </select>
+          <div class="muted">选 mock 会得到<b>假数据</b>，别用来评估性能。</div>
+        </div>
+        <div class="field"><label>预热次数</label>
+          <input id="cfgWarmup" class="input" type="number" value="1"></div>
+        <div class="field"><label>正式重复次数</label>
+          <input id="cfgRepeat" class="input" type="number" value="3"></div>
+        <div class="field"><label>生成长度（token）</label>
+          <input id="cfgOutputTokens" class="input" type="number" value="256"></div>
+        <div class="field"><label>连续失败几次就放弃该模型</label>
+          <input id="cfgSkipFails" class="input" type="number" value="2"></div>
+        <div class="field"><label>单点超时（秒）</label>
+          <input id="cfgTimeout" class="input" type="number" value="1800"></div>
+        <div class="field wide"><label>输出目录</label>
+          <input id="cfgOutputDir" class="input" type="text" value="./reports"></div>
+        <div class="field"><label>&nbsp;</label>
+          <label class="check"><input id="cfgAutoOpen" type="checkbox" checked> 跑完自动打开总览</label></div>
+      </div>
+      <div class="field wide"><label>自定义提示词（留空则用内置中性长文本）</label>
+        <textarea id="cfgPrompt" class="input" rows="3"
+                  placeholder="留空即可。内置文本会自动填充到你选的输入长度。"></textarea>
+      </div>
+    </details>
+
+    <div class="card">
+      <div class="card-title">测试规模</div>
+      <div class="muted">上下文档位（ctx，K）：档位越大越吃显存</div>
+      <div id="ctxLevels" class="chips"></div>
+      <div id="biosWarn" class="banner banner-warn" style="display:none">
+        <b>提示：你选了 64K 及以上的上下文档位。</b>
+        <div class="banner-sub">如果本机核显没有在 BIOS 里划分足够的显存，这些档位会因显存不足（OOM）失败。
+          不确定的话，建议先只跑 32K 及以下，确认能跑通再加。</div>
+      </div>
+      <div class="muted" style="margin-top:1rem">输入长度档位（input，K）：</div>
+      <div id="inputLevels" class="chips"></div>
+      <div class="row" style="margin-top:1rem">
+        <span class="muted">预计：每模型 <b id="comboCount">0</b> 组 ·
+          已选 <b id="comboModels">0</b> 个模型 ·
+          合计 <b id="comboTotal">0</b> 个测试点</span>
+      </div>
+      <div class="row">
+        <span class="muted">预计耗时：<b id="timeEstimate">—</b></span>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="quickTestBtn" class="btn">先试跑 1 个档位（约 1 分钟）</button>
+      <button id="startBtn" class="btn btn-primary btn-lg">开始完整测试</button>
+    </div>
+    <div class="muted" style="margin-top:.6rem">
+      建议先点「先试跑 1 个档位」确认路径与模型都没问题，再跑完整测试 ——
+      完整测试可能要几十分钟到几小时。
+    </div>
   </section>
 
   <!-- ⑤ 测试进度 -->
   <section id="v-progress" class="view">
     <h2 class="view-title">⑤ 测试进度</h2>
+    <div id="mockWarn3" class="banner banner-warn" style="display:none">
+      <b>⚠️ 正在使用模拟数据（mock）。</b>
+      <div class="banner-sub">本次结果不代表真机性能，仅用于预览报告样式。</div>
+    </div>
     <div class="card">
-      <div class="status-line">运行中… 模型 <b id="progModelIdx">0/0</b>: <b id="progModelName">—</b></div>
+      <div class="status-line">模型 <b id="progModelIdx">0/0</b>：<b id="progModelName">—</b></div>
       <div class="progress"><div id="progBar" class="progress-bar" style="width:0%"></div></div>
-      <div class="status-line"><b id="progPercent">0%</b> &nbsp; (<span id="progPoints">0/0</span> 点)</div>
-      <div class="status-line">当前: ctx=<b id="progCtx">—</b> &nbsp; input=<b id="progInput">—</b></div>
-      <div class="status-line">最近点: <span id="progLast">—</span></div>
+      <div class="status-line"><b id="progPercent">0%</b> &nbsp;（<span id="progPoints">0/0</span> 个测试点）</div>
+      <div class="status-line">当前：ctx=<b id="progCtx">—</b> &nbsp; input=<b id="progInput">—</b></div>
+      <div class="status-line">已用时 <b id="elapsedText">—</b> &nbsp;|&nbsp; 预计还需 <b id="etaText">—</b></div>
+      <div class="status-line">最近一个点：<span id="progLast">—</span></div>
       <div class="status-line muted" id="progMessage">—</div>
       <div class="actions"><button id="abortBtn" class="btn btn-danger">中断</button></div>
     </div>
   </section>
 
-  <!-- ⑥ 报告页 -->
+  <!-- ⑥ 报告 -->
   <section id="v-report" class="view">
     <h2 class="view-title">⑥ 报告</h2>
+    <div class="card" id="doneCard" style="display:none">
+      <div class="card-title">测试完成</div>
+      <div class="status-line">成功率：<b id="donePassRate">—</b>
+        &nbsp;|&nbsp; 失败 <b id="doneFail">—</b> 个点</div>
+      <div class="status-line muted" id="doneHint">—</div>
+      <div class="row">
+        <button id="openFolderBtn" class="btn btn-primary">打开报告所在文件夹</button>
+      </div>
+    </div>
     <div class="card">
       <div class="row">
         <label>报告</label>

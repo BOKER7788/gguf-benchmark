@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -19,7 +20,7 @@ from .models import (
     TaskStatus,
 )
 from .prompt_builder import PromptBuilder
-from .runners import make_runner
+from .runners import make_runner, resolve_runner_mode
 from .runners.base import LlamaServerRunner
 
 logger = get_logger("engine")
@@ -60,12 +61,17 @@ class BenchEngine:
         self._abort = threading.Event()
         self._current_runner: Optional[LlamaServerRunner] = None
         self._restart_lock = threading.Lock()
+        self._started_at: float = 0.0
 
         out = Path(config.output_dir)
         if not out.is_absolute():
             out = (PROJECT_ROOT / out).resolve()
         self.output_dir: Path = out
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # 跑之前就把「会不会降级到 mock」算出来，供 UI 提前警示（P0-8）
+        self.status.runner_mode_effective = resolve_runner_mode(config)  # type: ignore[assignment]
+        self.status.output_dir = str(self.output_dir)
 
     # ---- 矩阵裁剪 ----
     @staticmethod
@@ -86,14 +92,31 @@ class BenchEngine:
                 pairs.append((ctx, inp))
         return {"pairs": pairs, "per_ctx": per_ctx, "total": len(pairs)}
 
+    def effective_matrix(self, quick: bool | None = None) -> dict:
+        """返回本次实际要跑的矩阵。
+
+        ``quick=True``（P0-10 试跑）时只保留**最小 ctx 档位 × 最小 input 档位**
+        一个点，让用户在正式压测前用约 1 分钟确认 llama-server 路径、模型加载
+        与报告链路是否正常。
+        """
+        use_quick = self.config.quick_test if quick is None else quick
+        full = self.build_matrix(self.config.ctx_levels, self.config.input_levels)
+        if not use_quick or not full["pairs"]:
+            return full
+        ctx, inp = full["pairs"][0]
+        return {"pairs": [(ctx, inp)], "per_ctx": {ctx: [inp]}, "total": 1}
+
     # ---- 运行 ----
-    def run(self, models: list[ModelMeta]) -> None:
+    def run(self, models: list[ModelMeta], *, quick: bool | None = None) -> None:
         """串行执行所有模型的全部档位，并在结束后生成报告。"""
-        matrix = self.build_matrix(self.config.ctx_levels, self.config.input_levels)
+        matrix = self.effective_matrix(quick)
         self.status.state = "running"
         self.status.model_total = len(models)
         self.status.points_total = matrix["total"] * len(models)
+        # 工作量按输入 token 数加权：耗时几乎由输入长度决定，比单纯点数更贴近真实
+        self.status.work_total = float(sum(inp for _, inp in matrix["pairs"]) * len(models))
         self.status.message = "运行中"
+        self._started_at = time.monotonic()
         self._emit({"type": "state", "status": self.status.model_dump()})
 
         try:
@@ -262,6 +285,7 @@ class BenchEngine:
             point.error_msg = "已跳过（连续失败）"
             model_points.append(point)
             self.status.points_done += 1
+            self.status.work_done += float(inp)
             self.points.append(point)
         self._update_percent()
         self._emit({"type": "state", "status": self.status.model_dump()})
@@ -270,13 +294,29 @@ class BenchEngine:
         """登记数据点并更新状态。"""
         self.points.append(point)
         self.status.points_done += 1
+        self.status.work_done += float(point.input_tokens or 0)
         self.status.last_point = point
         self._update_percent()
 
     def _update_percent(self) -> None:
-        """更新完成百分比。"""
+        """更新完成百分比、已用时与预计剩余时间（P0-9）。"""
         total = self.status.points_total or 1
         self.status.percent = round(min(100.0, self.status.points_done / total * 100.0), 1)
+
+        if not self._started_at:
+            return
+        elapsed = max(0.0, time.monotonic() - self._started_at)
+        self.status.elapsed_s = round(elapsed, 1)
+
+        # 至少积累了 3 个点或 5% 工作量才给估算，避免刚开始时数字乱跳
+        if self.status.work_done > 0 and elapsed > 1.0 and self.status.work_total > 0:
+            enough = self.status.points_done >= 3 or (
+                self.status.work_done / self.status.work_total >= 0.05
+            )
+            if enough:
+                rate = self.status.work_done / elapsed  # 工作量/秒
+                remaining = max(0.0, self.status.work_total - self.status.work_done)
+                self.status.eta_s = round(remaining / rate, 1) if rate > 0 else 0.0
 
     # ---- 单点测量 ----
     def _measure_point(
@@ -370,6 +410,7 @@ class BenchEngine:
         builder.write_all_points_json(self.output_dir, models, self.points, self.hardware, self.config)
 
         self.reports = written + [overview_path]
+        self.status.report_paths = [str(p) for p in self.reports]
         append_task_log(self.output_dir, "报告已生成: " + ", ".join(str(p) for p in self.reports))
 
 

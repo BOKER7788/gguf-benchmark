@@ -33,6 +33,18 @@ const API = (() => {
     taskPoints: (id) => req('GET', '/api/tasks/' + id + '/points'),
     abortTask: (id) => req('POST', '/api/tasks/' + id + '/abort'),
     listReports: () => req('GET', '/api/reports'),
-    buildOverview: (task_id) => req('POST', '/api/reports/overview/build', { task_id })
+    buildOverview: (task_id) => req('POST', '/api/reports/overview/build', { task_id }),
+
+    // ---- 面向零基础用户的辅助接口 ----
+    pickDir: (title) => req('POST', '/api/dialog/pick-dir', { title: title || '' }),
+    pickFile: (title, patterns) =>
+      req('POST', '/api/dialog/pick-file', { title: title || '', patterns: patterns || '' }),
+    openFolder: (path) => req('POST', '/api/open-folder', { path: path || '' }),
+    recommend: () => req('GET', '/api/hardware/recommend'),
+    llamaCheck: (path) => req('POST', '/api/llama/check', { path }),
+    llamaDownload: (destDir) => req('POST', '/api/llama/download', { dest_dir: destDir || '' }),
+    llamaDownloadStatus: () => req('GET', '/api/llama/download/status'),
+    hints: () => req('GET', '/api/hints'),
+    runnerMode: () => req('GET', '/api/runner-mode')
   };
 })();
