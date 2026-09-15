@@ -220,4 +220,38 @@ def run() -> Suite:
     s.check("G6e", "start.bat 含后端就绪探测（轮询 /api/health）",
             "api/health" in start)
 
+    # ---- G7 Python 发现必须「实际执行 + 校验」，不能只看 where ----
+    # 起因：Windows 自带 Microsoft Store 的 python.exe「应用执行别名」（0 字节占位程序），
+    # WindowsApps 默认在 PATH 中，`where python` 会命中它并返回成功，
+    # 但执行时只打印一行英文提示到 stderr、stdout 为空，导致版本探测取不到值。
+    s.check("G7a", "start.bat 注释说明 where 命中不等于可用解释器",
+            "where python` 命中并不代表存在可用的解释器" in start)
+    s.check("G7b", "start.bat 显式识别并跳过 WindowsApps（商店别名）路径",
+            "WindowsApps" in start and "findstr /i /c:\"WindowsApps\"" in start)
+    s.check("G7c", "start.bat 探测时重定向 stderr（2^>nul），不让占位程序的英文提示漏到屏幕",
+            '2^>nul' in start)
+    s.check("G7d", "start.bat 用正则校验探测输出必须是版本号格式",
+            'findstr /r /c:"^[0-9][0-9]*\\.[0-9][0-9]*$"' in start)
+    s.check("G7e", "start.bat 有 :probe 子过程做「执行 + 校验」",
+            ":probe" in start and "PROBE_VER" in start)
+
+    # py 启动器优先级必须高于 python：py 在 C:\Windows\，不会被商店别名遮蔽
+    i_py = start.find('call :try_cmd "py -3"')
+    i_py2 = start.find('call :try_cmd "py"')
+    i_python = start.find("for /f \"delims=\" %%p in ('where python 2^>nul')")
+    s.check("G7f", "优先尝试 py 启动器，再尝试 PATH 中的 python",
+            i_py != -1 and i_py2 != -1 and i_python != -1 and i_py < i_py2 < i_python,
+            f"py-3@{i_py} py@{i_py2} python@{i_python}")
+
+    s.check("G7g", "兜底扫描常见安装目录（%LOCALAPPDATA%\\Programs\\Python 等）",
+            r"\Programs\Python\Python3*" in start and r"%ProgramFiles%\Python3*" in start)
+
+    # 报错文案必须可操作：给出下载地址与关闭别名的路径
+    s.check("G7h", "报错给出安装地址（python.org/downloads）",
+            "python.org/downloads/windows" in start)
+    s.check("G7i", "报错说明如何关闭「应用执行别名」",
+            "应用执行别名" in start)
+    s.check("G7j", "报错给出自检命令 py -3 --version",
+            "py -3 --version" in start)
+
     return s

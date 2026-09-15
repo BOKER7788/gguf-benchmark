@@ -80,6 +80,47 @@ API 契约与鲁棒性、工程卫生、曲线悬停交互。
 批处理脚本已按 Windows 要求处理：**CRLF 行尾** + **`chcp 65001`（保证中文不乱码）** +
 **`pythonw.exe` + 非 `/B` 启动（关窗口不中断后台服务）**。
 
+## 常见问题（Windows）
+
+### 报错 `Python was not found; run without arguments to install from the Microsoft Store...`
+
+然后在 `start.bat` 里看到 `[ERROR] 未能找到可用的 Python 解释器`。
+
+**原因**：Windows 10/11 自带 Microsoft Store 的「**应用执行别名**」——
+`%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe`（以及 `python3.exe`）。
+它是 **0 字节占位程序**，被调用时只打印上面那行英文提示就退出；而 `WindowsApps`
+**默认在 PATH 中**，因此 `where python` 会命中它。也就是说：**`where python` 成功 ≠ 有可用的解释器**。
+
+`start.bat` 已改为对每个候选**实际执行并校验输出是否为 `3.11` 这样的版本号**，
+并主动跳过 `WindowsApps` 路径（避免误触发 Microsoft Store）。若即使用了新版脚本仍报错，
+说明机器上确实没有可用的 Python，或仅剩商店别名，请按下表处理。
+
+**三种修复方式**
+
+| 方式 | 适用场景 | 操作 |
+|---|---|---|
+| **A. 安装 Python 3.11+**（推荐） | 从未装过 Python | 到 <https://www.python.org/downloads/windows/> 下载 **Windows installer (64-bit)**，安装第一屏**务必勾选 `Add python.exe to PATH`** |
+| **B. 关闭应用执行别名** | Python 已装，但被商店别名抢占了 `python` 这个名字 | 设置 → 应用 → 高级应用设置 → **应用执行别名** → 把 `python.exe`、`python3.exe` 两个开关都**关掉** |
+| **C. 用 `py` 启动器** | 多版本共存 / PATH 混乱 | `py` 位于 `C:\Windows\`，**不会被商店别名遮蔽**。脚本已优先尝试 `py -3`；手动验证：`py -3 --version` |
+
+**验证修复是否生效**
+
+```bat
+where python
+python --version
+py -3 --version
+```
+
+- `python --version` 能打印 `Python 3.11.x`（或更高）→ 已修好
+- 若 `python --version` 仍输出那行英文、但 `py -3 --version` 正常 → 属于方式 B，去关掉别名
+- 然后双击 `start.bat`，正常应看到 `[INFO] Python 解释器:` 与 `[INFO] Python 版本 :` 两行
+
+### 其他
+
+- **大 ctx 档位直接 OOM**：先在 BIOS 划分 UMA 显存（报告会把这类失败归因为 `OOM_GPU` 并提示）。
+- **关掉黑窗口后服务停了**：请用 `start.bat` 启动（内部用 `pythonw.exe` 且不加 `/B`，与当前控制台解耦）；
+  停止请用 `stop.bat`。
+
 ## 目标机冒烟（Strix Halo / Windows 11）
 
 1. 安装 Python 3.11+，双击 `start.bat`。
