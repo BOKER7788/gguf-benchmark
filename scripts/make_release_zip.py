@@ -14,9 +14,19 @@ v1.1.0 的打包脚本依赖 ``git ls-files``，在**没有 .git 的目录**（�
 
 用法::
 
-    .venv/bin/python scripts/make_release_zip.py                # 输出到 dist/
+    .venv/bin/python scripts/make_release_zip.py                # 输出到 dist/（含内置资源）
     .venv/bin/python scripts/make_release_zip.py --out D:/rel   # 指定输出目录
-    .venv/bin/python scripts/make_release_zip.py --no-bundle    # 只打源码（不含引擎/模型）
+    .venv/bin/python scripts/make_release_zip.py --no-bundle    # 轻量版（不含引擎/模型）
+
+两种包的对比：
+
+    gguf-benchmark-v1.1.2-win.zip         约 805 MB  开箱即用（含 llama.cpp/ 与 models/）
+    gguf-benchmark-v1.1.2-win-lite.zip    约   3 MB  仅源码；用户自备引擎与模型
+
+轻量版**必须**改用 ``README_FIRST_LITE`` 作为包内说明：仓库里的 ``请先读我.txt``
+是给「含内置资源」的包写的（写着"本包已经内置引擎与模型"），
+直接复用会在轻量包里说谎。界面文案同理——``/api/health`` 会返回
+``bundled_engine`` / ``bundled_models``，前端据此如实渲染。
 """
 
 from __future__ import annotations
@@ -104,6 +114,55 @@ README_FIRST = """GGUF Benchmark v{version}  —— by Boker
 """
 
 
+README_FIRST_LITE = """GGUF Benchmark v{version}  —— by Boker  （轻量版 · 不含引擎与模型）
+================================================
+
+这是一个在 Windows 上运行的本地大模型性能测试工具。
+报告是单文件 HTML，可以直接分享、离线打开。
+
+【本包不含推理引擎与模型，需自备（两样都准备好即可开始）】
+    ① 推理引擎：llama.cpp 的 llama-server.exe
+    ② 模型文件：任意 .gguf 文件
+
+  ▸ 你手上有现成的？直接指定就行，不用重新下载：
+      · 引擎：页面上点「手动选择已有的 llama-server.exe」
+      · 模型：把 .gguf 放进 models\\ 目录，或到「② 选模型」指定它所在的文件夹
+  ▸ 你手上没有？页面会帮你：
+      · 引擎：点「获取 / 更新 llama.cpp」自动下载 Windows Vulkan 版（约 200MB）
+      · 模型：到模型网站搜索「模型名 GGUF」，下载一个 .gguf 放进 models\\
+
+  若想要「开箱即用、什么都不用配」的版本，请下载
+      gguf-benchmark-v{version}-win.zip（约 805 MB，已内置引擎与 0.8B 模型）。
+
+【怎么用】只需要两步
+
+  第 1 步：双击  start.bat
+      · 如果电脑上没有 Python，脚本会问你一句，按 Y 会自动帮你装好。
+      · 第一次运行需要装几个依赖（约 1-3 分钟），窗口里会显示进度。
+
+  第 2 步：浏览器会自动打开，把上面①②两样准备好后点「先试跑 1 个档位」
+      · 试跑通过后，再点「开始完整测试」跑全部 49 个档位。
+
+  想停止服务：双击  stop.bat
+
+【体积说明】
+  本包故意不含引擎与模型，所以只有几 MB，下载很快；引擎与模型可以复用
+  你已有的文件，不必为了试用再下载一遍。
+
+【先看效果】
+  docs/demo/overview.html 是演示报告，直接用浏览器打开，
+  把鼠标放在曲线上滑动就能看到每个档位的数值。
+  注意：演示报告里的数字是模拟数据，不是你机器的真实性能。
+
+【常见问题】
+  见 README.md 的「常见问题（Windows）」一节。
+
+【测试】
+  想验证程序本身没坏，可以运行：
+      .venv\\Scripts\\python tests\\run_all.py
+"""
+
+
 def _is_excluded_dir(name: str) -> bool:
     return name in EXCLUDE_DIR_NAMES or name in EXCLUDE_COMPAT_DIRS
 
@@ -150,7 +209,7 @@ def build(out_dir: Path, include_bundle: bool = True) -> Path:
         raise SystemExit(f"在 {PROJECT_ROOT} 下没有找到可打包的文件")
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    suffix = "" if include_bundle else "-nosrc-bundle"
+    suffix = "" if include_bundle else "-lite"
     zip_path = out_dir / f"gguf-benchmark-v{__version__}-win{suffix}.zip"
 
     total_raw = 0
@@ -167,28 +226,31 @@ def build(out_dir: Path, include_bundle: bool = True) -> Path:
             )
             zf.write(src, f"{INNER_ROOT}/{rel.as_posix()}", compress_type=compress)
 
-        # 包内说明文件：优先用仓库里的 请先读我.txt（与 GitHub 上保持一致），
-        # 缺失时回退到内置模板，避免同一路径写两次。
-        readme_src = PROJECT_ROOT / "请先读我.txt"
-        readme_text = (
-            readme_src.read_text(encoding="utf-8")
-            if readme_src.is_file()
-            else README_FIRST.format(version=__version__)
-        )
+        # 包内说明文件：含内置资源时优先用仓库里的 请先读我.txt（与 GitHub 上保持一致），
+        # 缺失时回退到内置模板；轻量版必须换用 README_FIRST_LITE（否则会说谎）。
+        # 同一路径只写一次，避免 zip 里出现重复条目。
+        if include_bundle:
+            readme_src = PROJECT_ROOT / "请先读我.txt"
+            readme_text = (
+                readme_src.read_text(encoding="utf-8")
+                if readme_src.is_file()
+                else README_FIRST.format(version=__version__)
+            )
+        else:
+            readme_text = README_FIRST_LITE.format(version=__version__)
         zf.writestr(f"{INNER_ROOT}/请先读我.txt", readme_text)
     size_mb = zip_path.stat().st_size / 1048576
     print(f"已生成: {zip_path}")
     print(f"  收录文件: {len(files) + 1} 个（含 请先读我.txt）")
     print(f"  原始体积: {total_raw / 1048576:.1f} MB")
     print(f"  压缩体积: {size_mb:.1f} MB")
-    if include_bundle:
-        _verify(zip_path)
+    _verify(zip_path, include_bundle)
     return zip_path
 
 
-def _verify(zip_path: Path) -> None:
-    """自检：确认内置资源与关键入口都在包里。"""
-    must_have = [
+def _verify(zip_path: Path, include_bundle: bool = True) -> None:
+    """自检：确认关键入口都在包里，且「有没有内置资源」与包型一致。"""
+    common = [
         f"{INNER_ROOT}/run.py",
         f"{INNER_ROOT}/start.bat",
         f"{INNER_ROOT}/stop.bat",
@@ -199,23 +261,44 @@ def _verify(zip_path: Path) -> None:
         f"{INNER_ROOT}/config/default_config.json",
         f"{INNER_ROOT}/tests/run_all.py",
         f"{INNER_ROOT}/tests/_fixture.py",
-        f"{INNER_ROOT}/llama.cpp/llama-server.exe",
-        f"{INNER_ROOT}/models/Qwen3.5-0.8B-Q8_0.gguf",
         f"{INNER_ROOT}/请先读我.txt",
     ]
+    if include_bundle:
+        must_have = common + [
+            f"{INNER_ROOT}/llama.cpp/llama-server.exe",
+            f"{INNER_ROOT}/models/Qwen3.5-0.8B-Q8_0.gguf",
+        ]
+        must_not_have: list[str] = []
+        wrong_claim = "本包<b>已内置</b>"          # 静态文案里的写死承诺
+    else:
+        must_have = common
+        must_not_have = [f"{INNER_ROOT}/llama.cpp/", f"{INNER_ROOT}/models/"]
+        wrong_claim = "本包已经内置引擎与模型"      # 轻量版绝不能出现这句
+
     with zipfile.ZipFile(zip_path) as zf:
         names = set(zf.namelist())
+        readme = zf.read(f"{INNER_ROOT}/请先读我.txt").decode("utf-8")
+
     missing = [m for m in must_have if m not in names]
     if missing:
         raise SystemExit("发布包自检失败，缺少关键文件:\n  - " + "\n  - ".join(missing))
-    print(f"  自检通过: {len(must_have)} 个关键文件均在包内")
+
+    extra = [n for n in must_not_have if any(x.startswith(n) for x in names)]
+    if extra:
+        raise SystemExit("发布包自检失败，轻量版里不该出现:\n  - " + "\n  - ".join(extra))
+
+    if wrong_claim in readme:
+        raise SystemExit(f"发布包自检失败：包内说明含有与包型不符的表述「{wrong_claim}」")
+
+    kind = "含内置资源" if include_bundle else "轻量版（不含引擎与模型）"
+    print(f"  自检通过: {len(must_have)} 个关键文件均在包内；包型={kind}；说明文件表述与包型一致")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="打包开箱即用的发布 ZIP")
     parser.add_argument("--out", default=str(PROJECT_ROOT / "dist"), help="输出目录")
     parser.add_argument("--no-bundle", action="store_true",
-                        help="不打包内置的 llama.cpp/ 与 models/（只出源码包）")
+                        help="打轻量版：不含内置的 llama.cpp/ 与 models/（包名带 -lite，约 3 MB）")
     args = parser.parse_args()
     build(Path(args.out).expanduser().resolve(), include_bundle=not args.no_bundle)
     return 0

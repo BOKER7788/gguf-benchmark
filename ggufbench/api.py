@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import AUTHOR, PROJECT_URL, __version__
+from .bundle import bundled_resources
 from .config_store import ConfigStore
 from .engine import BenchEngine
 from .errors import HINTS, ApiError, ErrorCode, error_body, hint_for, ok_body
@@ -129,9 +130,12 @@ def register_routes(app: FastAPI, store: ConfigStore, task_manager: TaskManager)
     @app.get("/api/health")
     async def health() -> dict:
         cfg = store.load()
+        bundled = bundled_resources()
         return ok_body(
             python_version=sys.version.split()[0],
             llama_server_found=_llama_found(cfg),
+            bundled_engine=bundled["engine"],
+            bundled_models=bundled["models"],
             version=__version__,
             author=AUTHOR,
             project_url=PROJECT_URL,

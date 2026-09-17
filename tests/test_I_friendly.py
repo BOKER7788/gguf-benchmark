@@ -182,6 +182,13 @@ def run() -> Suite:
         ("I8g", "品牌区显示署名", "by Boker"),
     ]:
         s.check(cid, name, needle in index)
+    # I8h/I8i：界面文案不得把「本包已内置资源」写死在 HTML 里。
+    # 发布包有「含内置资源」与「轻量版（不含）」两种，写死会在轻量版里说谎；
+    # 正确做法是由 /api/health 的 bundled_engine / bundled_models 驱动（见 I9f/I9g）。
+    s.check("I8h", "上手向导的②③说明改为动态占位（step2Hint/step3Hint）",
+            'id="step2Hint"' in index and 'id="step3Hint"' in index)
+    s.check("I8i", "页面不再写死「本包已内置」字样",
+            "本包<b>已内置</b>" not in index) 
 
     # =====================================================================
     #  7. 新增接口可用（P0-3 / P0-6 / P0-7）
@@ -206,6 +213,22 @@ def run() -> Suite:
     rm = client.get("/api/runner-mode").json()
     s.check("I9e", "GET /api/runner-mode 明确告知是否会用 mock",
             "will_use_mock" in rm and isinstance(rm["will_use_mock"], bool))
+
+    # I9f/I9g：健康检查必须自报「本包带了什么」，界面才能如实描述。
+    # 否则轻量版（无 llama.cpp/ 与 models/）会显示「本包已内置」并让用户去找不存在的文件。
+    from ggufbench.bundle import bundled_resources
+
+    health = client.get("/api/health").json()
+    s.check("I9f", "GET /api/health 自报 bundled_engine / bundled_models",
+            "bundled_engine" in health and "bundled_models" in health,
+            f"keys={sorted(health)[:12]}")
+    res = bundled_resources()
+    s.eq("I9g", "/api/health 的 bundled_engine 与磁盘实际一致",
+          bool(health.get("bundled_engine")), bool(res["engine"]))
+    s.eq("I9h", "/api/health 的 bundled_models 与磁盘实际一致",
+          int(health.get("bundled_models") or 0), int(res["models"]))
+    s.check("I9i", "前端依据 bundled_* 渲染内置说明（不写死）",
+            "bundled_engine" in app and "bundled_models" in app)
     chk = client.post("/api/llama/check", json={"path": "/definitely/not/here"}).json()
     s.eq("I9f", "POST /api/llama/check 对不存在路径返回 exists=False", chk["exists"], False)
     dl = client.get("/api/llama/download/status").json()

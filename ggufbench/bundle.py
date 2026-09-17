@@ -124,6 +124,42 @@ def find_models_dir(root: Path | None = None) -> Path | None:
     return None
 
 
+def bundled_resources() -> dict:
+    """报告随包内置资源的实际存在情况。
+
+    用途：前端据此**如实**描述「本包是否带了引擎/模型」。发布包分两种——
+    含内置资源（约 811 MB 模型 + 86 MB 引擎）与不含（源码包，约 3 MB）——
+    如果文案写死「本包已内置」，在不含资源的包里就会误导用户。
+
+    Returns:
+        ``{"engine": bool, "engine_path": str, "models": int, "models_dir": str}``
+    """
+    engine = None
+    for name in _SERVER_NAMES:
+        candidate = BUNDLED_LLAMA_DIR / name
+        if candidate.is_file():
+            engine = candidate
+            break
+
+    models = 0
+    if BUNDLED_MODELS_DIR.is_dir():
+        try:
+            models = sum(
+                1
+                for entry in os.scandir(BUNDLED_MODELS_DIR)
+                if entry.is_file() and entry.name.lower().endswith(_GGUF_SUFFIX)
+            )
+        except OSError:  # pragma: no cover
+            models = 0
+
+    return {
+        "engine": engine is not None,
+        "engine_path": str(engine) if engine else "",
+        "models": models,
+        "models_dir": str(BUNDLED_MODELS_DIR) if models else "",
+    }
+
+
 def resolve_defaults(data: dict) -> dict:
     """就地补齐 ``llama_server_path`` / ``scan_dir``，返回同一个 dict。
 
@@ -151,6 +187,7 @@ def resolve_defaults(data: dict) -> dict:
 __all__ = [
     "BUNDLED_LLAMA_DIR",
     "BUNDLED_MODELS_DIR",
+    "bundled_resources",
     "find_llama_server",
     "find_models_dir",
     "resolve_defaults",

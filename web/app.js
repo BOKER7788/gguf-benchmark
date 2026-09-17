@@ -82,6 +82,20 @@
         ? '已发现 ' + state.candidates.length + ' 个模型 ✓'
         : '正在查找模型…若目录为空，请把 .gguf 放进 models/ 目录，或到「② 选模型」指定文件夹');
 
+      // 说明文案按「本包到底带了什么」如实渲染：
+      // 发布包有 含内置资源 / 不含内置资源 两种，写死会说谎。
+      const bundledEngine = !!data.bundled_engine;
+      const bundledModels = Number(data.bundled_models || 0);
+      $('step2Hint').innerHTML = bundledEngine
+        ? '本包<b>已内置</b> <code>llama.cpp\\llama-server.exe</code>，通常无需任何操作；想换新版本时再用下面的按钮。'
+        : '本包<b>未内置</b>推理引擎。点「获取 / 更新 llama.cpp」可自动下载，或指定已有的 <code>llama-server.exe</code>。';
+      $('step3Hint').innerHTML = bundledModels > 0
+        ? '本包<b>已内置</b> <code>models\\Qwen3.5-0.8B-Q8_0.gguf</code> 并会自动选中；想测自己的模型，把 <code>.gguf</code> 放进 <code>models\\</code> 目录即可。'
+        : '本包<b>未内置</b>模型。把 <code>.gguf</code> 放进 <code>models\\</code> 目录，或到「② 选模型」指定已有文件夹。';
+      $('bundleNote').textContent = bundledModels > 0
+        ? '已随包内置一个模型，可以直接开始试用。想测自己的模型时再看下面：'
+        : '本包未内置模型，需要先准备一个 .gguf 文件。准备好后看下面：';
+
       updateMockWarn(!data.llama_server_found);
       return true;
     } catch (e) {
