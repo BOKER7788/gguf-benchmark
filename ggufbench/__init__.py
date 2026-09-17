@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-__version__ = "1.1.0"
+__version__ = "1.1.2"
 TOOL_NAME = "GGUF Benchmark"
 AUTHOR = "Boker"
 PROJECT_URL = "https://github.com/BOKER7788/gguf-benchmark"

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from . import CONFIG_FILE, DEFAULT_CONFIG_FILE
+from .bundle import resolve_defaults
 from .logging_utils import get_logger
 from .models import BenchConfig
 
@@ -36,10 +37,15 @@ class ConfigStore:
 
     # ---- 内部 ----
     def _merged_dict(self) -> dict[str, Any]:
-        """default_config 与用户 config.json 合并（用户优先）。"""
+        """default_config 与用户 config.json 合并（用户优先），并补齐内置资源路径。
+
+        随包分发的 ``llama.cpp/`` 与 ``models/`` 会在 ``llama_server_path`` /
+        ``scan_dir`` 为空（或指向已不存在的旧路径）时被自动回填，使解压后的
+        首次启动即为可跑状态，无需用户手工选择引擎与模型目录。
+        """
         merged = _load_json(self.default_file)
         merged.update(_load_json(self.config_file))
-        return merged
+        return resolve_defaults(merged)
 
     # ---- 公开 API ----
     def load(self) -> BenchConfig:

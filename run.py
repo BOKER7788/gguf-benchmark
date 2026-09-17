@@ -14,6 +14,8 @@ import argparse
 import sys
 from pathlib import Path
 
+TOOL_BANNER = "GGUF Benchmark"
+
 
 def _check_python_version() -> None:
     """检查 Python 版本是否满足 >= 3.11。"""
@@ -138,11 +140,54 @@ def _serve(args: argparse.Namespace) -> int:
     return 0
 
 
-TOOL_BANNER = "GGUF Benchmark"
+def _ensure_std_streams() -> None:
+    """保证 ``sys.stdout`` / ``sys.stderr`` 可用。
+
+    ``start.bat`` 用 ``pythonw.exe`` 启动后端（GUI 子系统、无控制台），此时
+    CPython 会把两个标准流置为 ``None``。而 uvicorn 的日志 formatter 会无条件
+    调用 ``sys.stdout.isatty()``，于是 ``uvicorn.run()`` 在构造 Config 阶段就抛
+    ``AttributeError`` → ``ValueError: Unable to configure formatter 'default'``，
+    后端进程直接退出、端口永不监听。
+
+    这里在任何可能写标准流的动作之前把它们补成空设备，既保留 pythonw 的无窗口
+    特性，又让 uvicorn 能正常初始化日志。
+    """
+    import os
+
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name, None) is None:
+            try:
+                setattr(sys, name, open(os.devnull, "w", encoding="utf-8", buffering=1))
+            except OSError:  # pragma: no cover - 极端环境
+                pass
+
+
+def _log_startup_failure(exc: BaseException) -> Path | None:
+    """把启动期未捕获异常写到 ``reports/startup-error.log``。
+
+    pythonw 下标准流为空，异常堆栈会彻底丢失；落盘一份才能让用户/我们定位问题。
+    """
+    import time
+    import traceback
+
+    try:
+        from ggufbench import PROJECT_ROOT
+
+        log_dir = PROJECT_ROOT / "reports"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        path = log_dir / "startup-error.log"
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(f"===== {time.strftime('%Y-%m-%d %H:%M:%S')} 启动失败 =====\n")
+            fh.write("".join(traceback.format_exception(type(exc), exc, exc.__traceback__)))
+            fh.write("\n")
+        return path
+    except Exception:  # pragma: no cover - 兜底，绝不再抛
+        return None
 
 
 def main(argv: list[str] | None = None) -> int:
     """主入口。"""
+    _ensure_std_streams()
     _check_python_version()
     args = _parse_args(argv)
 
@@ -158,4 +203,12 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except BaseException as _exc:  # noqa: BLE001 - 顶层兜底，务必留痕
+        _path = _log_startup_failure(_exc)
+        _hint = f"（详见 {_path}）" if _path else ""
+        print(f"[E_INTERNAL] 启动失败: {_exc}{_hint}", file=sys.stderr)
+        raise SystemExit(1) from _exc

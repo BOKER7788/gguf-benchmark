@@ -9,6 +9,7 @@ import json
 from html import escape
 
 from .. import AUTHOR
+from ..feasibility import LEVEL_IMPOSSIBLE, LEVEL_TIGHT, LEVEL_UNKNOWN, judge_all, memory_capacity_gb
 from ..models import BenchConfig, BenchmarkPoint, HardwareInfo, ModelMeta
 from ..runners import resolve_runner_mode
 from .chart import render_chart_svg
@@ -145,6 +146,26 @@ tr.failed td { color: var(--red); }
 .mock-banner code {
   background: rgba(0, 0, 0, 0.3); padding: 0.1rem 0.35rem; border-radius: 4px;
 }
+.mock-banner.explicit { background: rgba(255, 107, 107, 0.14); border-color: var(--red); color: #ffd7d7; }
+.footprint {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 1rem 1.5rem; margin-bottom: 1.5rem;
+}
+.footprint h2 { font-size: 1.05rem; color: var(--accent); margin-bottom: 0.4rem; }
+.footprint .fp-summary { color: var(--text-secondary); font-size: 0.86rem; margin-bottom: 0.7rem; }
+.footprint table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+.footprint th {
+  text-align: left; color: var(--text-secondary); font-weight: 600;
+  border-bottom: 1px solid var(--border); padding: 0.35rem 0.6rem;
+}
+.footprint td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
+.footprint tr:last-child td { border-bottom: none; }
+.footprint .fp-impossible td { color: var(--red); }
+.footprint .fp-tight td { color: var(--amber, #d9a441); }
+.footprint .fp-verdict { font-weight: 600; }
+.footprint .fp-detail { color: var(--text-secondary); font-size: 0.84rem; margin-top: 0.7rem; line-height: 1.7; }
+.footprint .fp-reason { color: var(--text-secondary); font-size: 0.84rem; margin-top: 0.4rem; }
+.launch-params .lp-note { color: var(--red); font-size: 0.82rem; margin-bottom: 0.4rem; }
 .hardware {
   background: var(--card-bg); border: 1px solid var(--border);
   border-radius: 8px; padding: 1rem 1.5rem; margin-bottom: 1.5rem;
@@ -569,8 +590,14 @@ def hardware_html(
     tool_name: str,
     tool_version: str,
     llama_version: str,
+    runner_mode: str = "real",
 ) -> str:
-    """硬件信息区块 + 每档启动参数留档（决策 10）。"""
+    """硬件信息区块 + 每档启动参数留档（决策 10）。
+
+    ``runner_mode``（v1.1.2 新增）：mock 模式下 ``launch_cmds`` 里的命令**从未
+    被执行过**（它只是根据配置推演出来的），但旧版仍以「启动参数（可复现）」
+    的名义列出，读者会合理地认为这些命令跑过。这里在 mock 时显式标注。
+    """
     items = [
         ("CPU 型号", hw.cpu_model or "Unknown"),
         ("主机型号", hw.host_model or "Unknown"),
@@ -592,29 +619,47 @@ def hardware_html(
     if not param_lines:
         param_lines = '<code>（无启动参数记录）</code>'
 
+    note = ""
+    if runner_mode == "mock" and param_lines:
+        note = (
+            '<div class="lp-note">⚠️ 本次运行是 mock，'
+            "以下命令仅按配置推演得出，<b>实际并未执行</b>（没有加载模型、没有启动 llama-server）。</div>"
+        )
+
     return (
         '<div class="hardware">'
         "<h2>硬件信息与启动参数</h2>"
         f'<div class="hw-grid">{grid}</div>'
         '<div class="launch-params">'
         '<div class="lp-title">启动参数（可复现）</div>'
-        f"{param_lines}"
+        f"{note}{param_lines}"
         f'<div class="hw-item" style="margin-top:0.6rem;"><b>工具</b>: {escape(tool_name)} v{escape(tool_version)} '
         f'&nbsp;|&nbsp; <b>llama.cpp</b>: {escape(llama_version)}</div>'
         "</div></div>"
     )
 
 
-def footer_html() -> str:
+def footer_html(runner_mode: str = "real") -> str:
     """页脚（含作者署名）。
 
     刻意不写入项目 URL：报告要保持「除 SVG 命名空间外不含任何外部 URL」
     这一**可 grep 验证**的强保证，便于离线分发与审计。
+
+    ``runner_mode``（v1.1.2 新增）：v1.1.1 及更早版本无条件写「数据由本机
+    llama.cpp 后端实测」，与同一份文档里的 mock 警示条直接矛盾 —— 这会让
+    读者在「警示是误报」与「页脚是套话」之间自行二选一，而两者都不该发生。
     """
+    if runner_mode == "mock":
+        claim = (
+            "完全离线、零 CDN 单文件报告。"
+            '<b style="color:var(--red)">本次为模拟（mock）数据，并未调用 llama.cpp 推理。</b>'
+        )
+    else:
+        claim = "完全离线、零 CDN 单文件报告。数据由本机 llama.cpp 后端实测。"
     return (
         '<div class="footer">'
         f"GGUF Benchmark &mdash; by {escape(AUTHOR)}<br>"
-        "完全离线、零 CDN 单文件报告。数据由本机 llama.cpp 后端实测。"
+        f"{claim}"
         "</div>"
     )
 
@@ -624,16 +669,123 @@ def mock_banner_html(cfg: BenchConfig) -> str:
 
     ``auto`` 在找不到 llama-server 时会静默降级到 mock。若不显式警示，
     用户会把合成数据当成自己机器的真实性能 —— 这是代价最大的误解。
+
+    v1.1.2 起按**触发原因**分支（v1.1.1 一律写「未检测到可用的 llama-server」，
+    在用户主动选了 mock、或路径明明有效的情况下，这句话是错的，读者会把它
+    当成误报而忽略掉整条警示）。
     """
     if resolve_runner_mode(cfg) != "mock":
         return ""
+
+    body = (
+        "<b>本次没有加载任何模型，也没有启动 llama-server。</b><br>"
+        "表中的 tps 与耗时是<b>按模型名里的参数规模算出来的合成值</b>"
+        "（<code>prefill = 9000 / √B</code>、<code>decode = 200 / √B</code>，"
+        "B 取自文件名中的 <code>0.8B</code>/<code>35B</code>/<code>397B</code> 等），"
+        "与真实推理无关，也与这台机器的性能无关。<br>"
+        "因此<b>再大的模型也会显示「成功」</b>——"
+        "包括本机内存装不下的模型。请不要用这份数据做选型或性能结论。"
+    )
+
+    if cfg.runner_mode == "mock":
+        # 用户主动选择：不要说「未检测到 llama-server」，那是错的
+        title = "⚠️ 你选择了 mock（合成数据）模式，本次报告不是真机性能。"
+        how = (
+            "要获得真实数据：把「运行模式」改回 <code>auto</code> 或 <code>real</code>，"
+            "确认 <code>llama-server.exe</code> 路径有效后重新运行。"
+        )
+        cls = "mock-banner explicit"
+    else:
+        title = "⚠️ 本次报告是模拟数据（mock），不代表真机性能。"
+        how = (
+            "原因是未检测到可用的 llama-server（运行模式为 <code>auto</code> 时会自动降级）。"
+            "在工具「参数配置」里填入 <code>llama-server.exe</code> 路径后重新运行即可获得真实数据。"
+        )
+        cls = "mock-banner"
+
+    return f'<div class="{cls}"><b>{title}</b><br>{body}<br>{how}</div>'
+
+
+def footprint_html(
+    models: list[ModelMeta], hw: HardwareInfo, runner_mode: str = "real"
+) -> str:
+    """「模型体量与内存」区块（v1.1.2 新增）。
+
+    报告此前既不显示模型体积、也不做可行性校验，于是「224 GB 的模型在 64 GB
+    机器上测试成功」可以毫无阻拦地产生。这里把权重体积、占内存比例与结论
+    并排列出，让读者一眼就能判断哪些结果在物理上不可能是真的。
+    """
+    if not models:
+        return ""
+
+    capacity = memory_capacity_gb(hw)
+    verdicts = judge_all(models, hw)
+
+    cap_text = (
+        f"本机可用内存约 <b>{capacity:.1f} GB</b>"
+        if capacity > 0
+        else "本机内存<b>未采集到</b>"
+    )
+    if hw.uma_vram_gb and hw.uma_vram_gb <= (hw.ram_gb or 0):
+        cap_text += "（核显与系统共享同一块物理内存，显存不额外叠加）"
+    elif hw.uma_vram_gb:
+        cap_text += f"；另有独立显存约 {hw.uma_vram_gb:.1f} GB"
+
+    rows = ""
+    for meta, v in zip(models, verdicts):
+        if v.level == LEVEL_UNKNOWN:
+            cls, verdict_label, pct = "fp-unknown", "无法判断", "-"
+        elif v.level == LEVEL_IMPOSSIBLE:
+            cls, verdict_label = "fp-impossible", "物理上装不下"
+            pct = f"{v.weights_gib / v.capacity_gb * 100:.0f}%" if v.capacity_gb else "-"
+        elif v.level == LEVEL_TIGHT:
+            cls, verdict_label = "fp-tight", "内存紧张"
+            pct = f"{v.weights_gib / v.capacity_gb * 100:.0f}%" if v.capacity_gb else "-"
+        else:
+            cls, verdict_label = "fp-ok", "可以加载"
+            pct = f"{v.weights_gib / v.capacity_gb * 100:.0f}%" if v.capacity_gb else "-"
+
+        size_text = f"{v.weights_gib:.1f} GiB" if v.weights_gib > 0 else "未知"
+        if meta.file_size_mb > 0 and meta.model_size:
+            size_text += f"（{escape(str(meta.model_size))}）"
+        rows += (
+            f'<tr class="{cls}"><td>{escape(meta.model_name)}</td>'
+            f"<td>{size_text}</td><td>{pct}</td>"
+            f'<td class="fp-verdict">{verdict_label}</td></tr>'
+        )
+
+    details = ""
+    for v in verdicts:
+        if not v.needs_attention:
+            continue
+        reason_html = ""
+        if v.reasons:
+            reason_html = (
+                '<div class="fp-reason">可尝试：'
+                + "；".join(escape(r) for r in v.reasons)
+                + "</div>"
+            )
+        details += (
+            f'<div class="fp-detail"><b>{escape(v.model_name)}</b>：{escape(v.detail)}'
+            f"{reason_html}</div>"
+        )
+
+    mock_note = ""
+    if runner_mode == "mock" and any(v.needs_attention for v in verdicts):
+        mock_note = (
+            '<div class="fp-detail" style="color:var(--red)">'
+            "注意：本次为 mock（合成数据），上表中「成功」的数据点与这些体积限制无关 —— "
+            "mock 不加载模型，所以装不下的模型也会显示成功。切到 real 模式后它们会失败。"
+            "</div>"
+        )
+
     return (
-        '<div class="mock-banner">'
-        "<b>⚠️ 本次报告是模拟数据（mock），不代表真机性能。</b><br>"
-        "未检测到可用的 llama-server，本次没有调用真实推理，"
-        "表中的 tps 与耗时均为合成值，仅用于验证流程与报告样式。<br>"
-        "要获得真实数据：在工具「参数配置」里填入 <code>llama-server.exe</code> 路径后重新运行。"
-        "</div>"
+        '<div class="footprint">'
+        "<h2>模型体量与内存</h2>"
+        f'<div class="fp-summary">{cap_text}</div>'
+        "<table><thead><tr><th>模型</th><th>权重体积</th><th>占内存</th><th>结论</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table>"
+        f"{details}{mock_note}</div>"
     )
 
 
@@ -727,6 +879,11 @@ def render_report_html(
     if not model_names:
         model_names = sorted({p.model_name for p in points})
 
+    # 实际生效的运行器（auto 且找不到 llama-server 时会降级为 mock）
+    runner_mode = resolve_runner_mode(cfg)
+    # 报告中出现的模型：优先用调用方传入的元信息，缺失时按数据点反推体积
+    footprint_models = list(models) or _models_from_points(points)
+
     parts: list[str] = []
     parts.append(
         "<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"UTF-8\">"
@@ -738,6 +895,7 @@ def render_report_html(
     parts.append(mock_banner_html(cfg))
     parts.append(oom_banner_html(points))
     parts.append(how_to_read_html(points))
+    parts.append(footprint_html(footprint_models, hw, runner_mode))
     parts.append(intro_html(cfg))
     parts.append(controls_html())
     parts.append('<div class="summary" id="summaryCards"></div>')
@@ -745,16 +903,38 @@ def render_report_html(
     parts.append(chart_container(render_chart_svg(points, "decode")))
     parts.append('<div id="tables"></div>')
     parts.append(
-        hardware_html(hw, launch_cmds, tool_name, tool_version, llama_version)
+        hardware_html(hw, launch_cmds, tool_name, tool_version, llama_version, runner_mode)
     )
     parts.append("</div>")  # container
-    parts.append(footer_html())
+    parts.append(footer_html(runner_mode))
     parts.append(
         "<script>const DATA=" + _serialize_points(points)
         + "; const MODELS=" + json.dumps(model_names, ensure_ascii=False)
         + ";\n" + CLIENT_JS + "\n</script></body></html>"
     )
     return "".join(parts)
+
+
+def _models_from_points(points: list[BenchmarkPoint]) -> list[ModelMeta]:
+    """按数据点去重反推模型元信息（离线重建报告时用）。
+
+    ``--report-only`` 路径没有 ``ModelMeta``，但体积是可行性结论的必需输入，
+    所以从 points.json 里尽力还原。体积缺失时判为「无法判断」，不臆测。
+    """
+    seen: dict[str, ModelMeta] = {}
+    for p in points:
+        key = f"{p.model_name}|{p.precision}|{p.n_chip}"
+        if key in seen:
+            continue
+        seen[key] = ModelMeta(
+            model_name=p.model_name,
+            model_size=p.model_size,
+            gguf_path="",
+            precision=p.precision,
+            n_chip=p.n_chip,
+            file_size_mb=float(getattr(p, "file_size_mb", 0.0) or 0.0),
+        )
+    return list(seen.values())
 
 
 __all__ = [
@@ -767,5 +947,7 @@ __all__ = [
     "chart_container",
     "hardware_html",
     "footer_html",
+    "footprint_html",
+    "mock_banner_html",
     "oom_banner_html",
 ]

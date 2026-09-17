@@ -45,11 +45,15 @@
         <li class="step" id="step2">
           <span class="step-dot" id="step2Dot"></span>
           <div class="step-body">
-            <b>获取推理引擎 llama.cpp</b>
+            <b>推理引擎 llama.cpp</b>
             <div class="muted" id="step2Text">—</div>
+            <div class="muted" style="font-size:.85em">
+              本包<b>已内置</b> <code>llama.cpp\llama-server.exe</code>，通常无需任何操作；
+              想换新版本时再用下面的按钮。
+            </div>
             <div class="row" style="margin-top:.5rem">
-              <button id="dlLlamaBtn" class="btn btn-primary">一键获取 llama.cpp（约 200MB）</button>
-              <button id="pickLlamaBtn" class="btn">我已装好，手动选择文件</button>
+              <button id="dlLlamaBtn" class="btn">获取 / 更新 llama.cpp（约 200MB）</button>
+              <button id="pickLlamaBtn" class="btn">手动选择已有的 llama-server.exe</button>
             </div>
             <div class="dl-progress" id="dlProgress" style="display:none">
               <div class="progress"><div id="dlBar" class="progress-bar" style="width:0%"></div></div>
@@ -60,8 +64,12 @@
         <li class="step" id="step3">
           <span class="step-dot" id="step3Dot"></span>
           <div class="step-body">
-            <b>准备模型文件（.gguf）</b>
+            <b>模型文件（.gguf）</b>
             <div class="muted" id="step3Text">—</div>
+            <div class="muted" style="font-size:.85em">
+              本包<b>已内置</b> <code>models\Qwen3.5-0.8B-Q8_0.gguf</code> 并会自动选中；
+              想测自己的模型，把 <code>.gguf</code> 放进 <code>models\</code> 目录即可。
+            </div>
           </div>
         </li>
       </ol>
@@ -96,7 +104,8 @@
 
     <div class="card" id="modelGuide">
       <div class="card-title">还没有模型文件？</div>
-      <div class="muted">本工具测试的是 <b>.gguf</b> 格式的模型文件。流程是：</div>
+      <div class="muted">本包<b>已内置</b>一个 <code>models\Qwen3.5-0.8B-Q8_0.gguf</code>，可以直接开始试用。
+        想测自己的模型时再看下面：本工具测试的是 <b>.gguf</b> 格式的模型文件，流程是：</div>
       <ol class="plain-list">
         <li>在模型网站搜索「<b>模型名 GGUF</b>」，例如 <code>Qwen3 GGUF</code>；</li>
         <li>在结果里选一个量化版本下载 —— 想要<b>速度快、省显存</b>就选 <code>Q4_K_M</code>，
@@ -231,6 +240,7 @@
       <div class="row">
         <span class="muted">预计耗时：<b id="timeEstimate">—</b></span>
       </div>
+      <div id="footprintWarn" class="banner banner-warn" style="display:none"></div>
     </div>
 
     <div class="actions">

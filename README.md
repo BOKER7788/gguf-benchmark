@@ -12,6 +12,13 @@
 
 ## 怎么用（只需要两步）
 
+> **本发布包已内置推理引擎与默认模型** —— 解压后目录里就有：
+> - `llama.cpp/llama-server.exe`：推理引擎（Windows Vulkan 版）
+> - `models/Qwen3.5-0.8B-Q8_0.gguf`：默认模型
+>
+> 所以**无需任何下载与配置**，双击 `start.bat` 后在页面上点「**先试跑 1 个档位**」
+> 就能跑通完整流程。下面表格里的 ②③ 只在你**想换自己的引擎/模型**时才需要。
+
 ### 第 1 步：双击 `start.bat`
 
 - 如果电脑上没有 Python，脚本会**问你一句**，按 `Y` 它会用 `winget` 自动装好并配置 PATH。
@@ -25,8 +32,10 @@
 | 步骤 | 页面会帮你做什么 |
 |---|---|
 | ① 运行环境 | 自动检测 Python 版本与依赖是否就绪 |
-| ② 推理引擎 | 点「**一键获取 llama.cpp**」自动下载 Windows Vulkan 版并解压、回填路径（约 200MB）；已有的话点「手动选择文件」 |
-| ③ 模型文件 | 点「**选择文件夹…**」用系统窗口挑模型目录，不用手打路径 |
+| ② 推理引擎 | **已内置，开箱即用**（自动填好 `llama.cpp/llama-server.exe`）；想换版本可点「获取 / 更新 llama.cpp」自动下载（约 200MB），或手动选择已有的文件 |
+| ③ 模型文件 | **已内置，开箱即用**（启动时自动扫描 `models/` 并勾选）；想换模型可点「**选择文件夹…**」用系统窗口挑目录 |
+
+> 也就是说，解压后你**只需要**：双击 `start.bat` → 浏览器自动打开 → 点「**先试跑 1 个档位**」。
 
 然后：
 
@@ -42,14 +51,18 @@
 ## 特性
 
 - **零基础可用**：原生文件夹选择、一键获取 llama.cpp、按机器预填参数、耗时预估、先试跑再全量。
-- **不会拿假数据骗你**：找不到 llama-server 时，界面与报告顶部都会出现**醒目警示**，明确告诉你这是模拟数据。
+- **不会拿假数据骗你**：找不到 llama-server 时，界面与报告顶部都会出现**醒目警示**，明确告诉你这是模拟数据；
+  主动选了 mock 模式时文案会直接说「你选择了 mock 模式」，而不是甩锅给「未检测到 llama-server」。
+- **不会让不可能的结论溜过去**：报告新增「模型体量与内存」区块，逐模型列出权重体积与占内存比例；
+  真实模式下**仅权重就超过内存的模型会被直接跳过**（标记为显存不足），而不是花几十分钟把机器拖死。
+  配置页勾选模型后立刻提示装不下的模型。
 - **双维度矩阵**：ctx 档 `4/8/16/32/64/128/256K` × input 档 `0.25/0.5/1/2/4/…/128K`，仅保留 `input < ctx`（默认 **49 组/模型**）。
 - **失败跳过状态机**：同一模型连续 2 次失败 → 剩余档位标记「已跳过」；成功一次即清零。
 - **失败归因 + 人话解释**：`OOM_GPU / MODEL_FAIL / TIMEOUT / OTHER`，每条都配「这是什么意思 / 你该怎么做」。
 - **完全离线报告**：单文件自包含 HTML（内联 CSS/JS/SVG，**零 CDN**），含 Prefill/Decode 曲线、可折叠参数说明、10 列可排序汇总表、硬件信息与启动参数留档。
 - **曲线悬停数值标签**：十字准线 + 跟随浮层；被筛选隐藏的曲线不参与提示。
 - **零构建前端**：原生 HTML + 原生 JS，目标机**只需 Python，无需 Node**。
-- **可复现**：报告记录每档 ctx 的完整 llama.cpp 启动参数。
+- **可复现**：报告记录每档 ctx 的完整 llama.cpp 启动参数（mock 模式下会标注「实际并未执行」）。
 
 ---
 
@@ -93,6 +106,24 @@ py -3 --version       :: 上一条失败但这条正常 → 属于方式 B
 如果界面或报告顶部出现了「**模拟数据（mock）**」的橙色警示，说明当时没有可用的
 llama-server，本次没有真正调用推理。请按第 2 步配置好 `llama-server.exe` 后重跑。
 
+mock 模式下**不会加载任何模型**，tps 与耗时是按模型名里的参数规模算出来的合成值，
+所以再大的模型也会「测试成功」——包括本机内存根本装不下的。判断方法看下一节。
+
+### 报告里的模型「测试成功」了，但它真的跑得动吗
+
+报告的「**模型体量与内存**」区块会逐模型列出权重体积、占内存比例与结论：
+
+| 结论 | 含义 |
+|---|---|
+| 可以加载 | 权重占用不到本机内存的 80% |
+| 内存紧张 | 占 80%~90%，能加载但大上下文档位很可能 OOM |
+| 物理上装不下 | 仅权重就超过内存上限 —— 这份数据不可能是本机真实推理的结果 |
+| 无法判断 | 没采集到模型体积或本机内存 |
+
+> 经验值：模型体积直接看 `.gguf` 文件大小（分片模型要把所有分片相加）。
+> 权重必须全部驻留在内存或显存里，**再加上 KV cache**，所以可用内存至少要
+> 比权重体积大一截。真实模式下，本工具会直接跳过装不下的模型并标记为「显存不足」。
+
 ---
 
 ## 开发 / 手动运行
@@ -112,11 +143,16 @@ python -m venv .venv
 .venv/bin/python run.py --report-only reports/all_points.json --overview --out overview.html
 ```
 
-**打包「开箱即用」发布 ZIP**（只收录 git 跟踪的文件）：
+**打包「开箱即用」发布 ZIP**（含内置的 `llama.cpp/` 与 `models/`）：
 
 ```bash
-.venv/bin/python scripts/make_release_zip.py    # 输出到 dist/
+.venv/bin/python scripts/make_release_zip.py            # 输出到 dist/，约 830MB
+.venv/bin/python scripts/make_release_zip.py --no-bundle # 只打源码，不含引擎/模型
 ```
+
+> 脚本不再依赖 `git ls-files`（在没有 `.git` 的目录也能跑），改为**显式清单 + 递归排除**，
+> 自动剔除 `.venv/` `reports/` `config.json` `__pycache__/` 等运行产物，并在打包后自检
+> 关键文件是否都在包内。
 
 ### 测试
 
@@ -125,7 +161,9 @@ python -m venv .venv
 .venv\Scripts\python tests\run_all.py           # Windows
 ```
 
-9 个模块 / **292 条断言**，零第三方依赖（不依赖 pytest）：
+10 个模块 / **337 条断言**，零第三方依赖（不依赖 pytest）。
+测试**自带确定性夹具**（`tests/_fixture.py` 用 mock 引擎现场生成 2 模型 × 49 点的报告产物到临时目录），
+因此不依赖开发机上的历史 `reports/` 残留，干净解压即可全绿。
 
 | 模块 | 覆盖 |
 |---|---|
@@ -138,6 +176,7 @@ python -m venv .venv
 | G 工程卫生 | 依赖最小化、无循环导入、Windows 批处理兼容性 |
 | H 曲线悬停交互 | Node 真实派发 mousemove/mouseleave，断言寻点、行数上限、边界翻转 |
 | I 零基础友好度 | 人话错误、试跑矩阵、mock 预判、品牌词清除、前端交互接入 |
+| J 体量可行性与 mock 免责声明 | 装不下的模型被拦截、报告体量区块、mock 页脚/警示文案、硬件采集与 runner_mode 解耦 |
 
 ### 目录结构
 
@@ -145,7 +184,11 @@ python -m venv .venv
 start.bat / stop.bat    Windows 一键启动 / 停止
 run.py                  程序入口（含 --report-only）
 requirements.txt        3 个依赖（fastapi / uvicorn / httpx）
+llama.cpp/              随包内置的推理引擎（Windows Vulkan 版，开箱即用）
+models/                 随包内置的默认模型（Qwen3.5-0.8B Q8_0，开箱即用）
 ggufbench/              后端包
+  ├ bundle.py           内置资源自动定位（llama.cpp/ 与 models/，零配置启动）
+  ├ feasibility.py      模型体量 vs 本机内存的可行性判断（装不下就拦下来）
   ├ friendly.py         原生对话框、一键获取 llama.cpp、硬件推荐
   ├ engine.py           矩阵裁剪、串行编排、每档重启、失败状态机、ETA
   ├ api.py              A1~A15 + 小白友好接口
@@ -154,6 +197,7 @@ web/                    零构建前端（index.html + app.js + api.js + styles.
 scripts/                发布打包
 docs/                   PRD / 架构 / QA 报告 / 上手体验审计 / 演示报告
 tests/                  回归套件（run_all.py）
+  └ _fixture.py         确定性测试夹具（不依赖历史 reports/ 残留）
 ```
 
 ### 跨平台说明
@@ -161,6 +205,7 @@ tests/                  回归套件（run_all.py）
 | 能力 | macOS / Linux | Windows 11 |
 |---|---|---|
 | 后端 / 报告 / 前端 | ✅ | ✅ |
+| 随包内置引擎与模型 | 自行放置 `llama.cpp/` 与 `models/` | ✅ 发布包已内置，零配置 |
 | 原生文件夹选择 | `osascript` / `zenity` / tkinter | PowerShell `FolderBrowserDialog` |
 | 硬件信息采集 | `platform` / `sysctl` | PowerShell CIM（CPU/主机/内存/系统/GPU） |
 | llama-server 进程管理 | `setsid` + `killpg` | `CREATE_NEW_PROCESS_GROUP` + `taskkill /F /T` |

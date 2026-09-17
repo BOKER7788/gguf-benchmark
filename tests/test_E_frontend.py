@@ -11,12 +11,12 @@ import re
 import subprocess
 from pathlib import Path
 
+from _fixture import fixture_overview
 from _harness import PROJECT_ROOT, Suite
 
 EXPECTED_KEYS = ["ctx", "input", "prefill", "decode", "ptime", "dtime", "vision", "precision", "chip", "status"]
 EXPECTED_LABELS = ["Ctx(k)", "Input(k)", "Prefill(tps)", "Decode(tps)", "P-Time(ms)", "D-Time(ms)", "Vision(fps)", "精度", "芯片数", "状态"]
 HARNESS = Path(__file__).resolve().parent / "frontend_harness.js"
-OVERVIEW = PROJECT_ROOT / "reports" / "overview.html"
 
 
 def _strip_mark(label: str) -> str:
@@ -26,15 +26,19 @@ def _strip_mark(label: str) -> str:
 def run() -> Suite:
     s = Suite("E. 前端逻辑")
 
-    # ---- 运行 Node harness ----
+    # ---- 运行 Node harness（对夹具报告，非开发机残留产物）----
+    overview = fixture_overview()
+    proc = None
     try:
         proc = subprocess.run(
-            ["node", str(HARNESS), str(OVERVIEW)],
+            ["node", str(HARNESS), str(overview)],
             capture_output=True, text=True, timeout=60,
         )
         out = json.loads(proc.stdout.strip().splitlines()[-1])
     except Exception as exc:  # noqa: BLE001
-        s.check("E0", "Node harness 可运行", False, f"{exc}; stderr={getattr(proc,'stderr','')[:300]}")
+        s.check("E0", "Node harness 可运行", False,
+                f"{exc}; returncode={getattr(proc, 'returncode', None)}; "
+                f"stderr={(getattr(proc, 'stderr', '') or '')[:400]}")
         return s
 
     # E1 SORT_MAP 覆盖 10 列

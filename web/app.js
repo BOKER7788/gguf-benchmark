@@ -80,7 +80,7 @@
       const hasModels = state.candidates.length > 0;
       setStep('step3', hasModels ? true : null, hasModels
         ? '已发现 ' + state.candidates.length + ' 个模型 ✓'
-        : '还没扫描到模型。下载 .gguf 文件后，到「② 选模型」选文件夹');
+        : '正在查找模型…若目录为空，请把 .gguf 放进 models/ 目录，或到「② 选模型」指定文件夹');
 
       updateMockWarn(!data.llama_server_found);
       return true;
@@ -229,6 +229,45 @@
     $('comboTotal').textContent = perModel * models;
     updateBiosWarn();
     updateTimeEstimate();
+    refreshFeasibility();
+  }
+
+  // 体量/内存可行性提示（v1.1.2）：在开跑之前就把「装不下」的模型标出来。
+  // 旧版没有任何这类校验，224 GB 的模型也能一路跑到底并显示成功。
+  async function refreshFeasibility() {
+    const box = $('footprintWarn');
+    if (!box) return;
+    const models = selectedModels();
+    if (!models.length) { box.style.display = 'none'; return; }
+    let data = null;
+    try {
+      data = await API.preview(models, collectConfig());
+    } catch (e) { box.style.display = 'none'; return; }
+
+    const list = (data && data.feasibility) || [];
+    const bad = list.filter((f) => f.level === 'impossible');
+    const tight = list.filter((f) => f.level === 'tight');
+    if (!bad.length && !tight.length) { box.style.display = 'none'; return; }
+
+    const mem = data && data.memory_gb ? `本机可用内存约 ${data.memory_gb} GB。` : '';
+    let html = '';
+    if (bad.length) {
+      html += '<b>⚠️ 以下模型本机装不下（仅权重就超过内存）：</b>'
+        + '<div class="banner-sub">'
+        + bad.map((f) => `${escapeHtml(f.model)}：${f.weights_gib} GiB / ${f.capacity_gb} GB`)
+            .join('；')
+        + `。${mem}real 模式下它们会直接失败（本工具会跳过并标记为「显存不足」）；`
+        + '在 mock 模式下它们会显示成功，但那不是真实数据。</div>';
+    }
+    if (tight.length) {
+      html += `<b>提示：${tight.length} 个模型的内存占用偏高。</b>`
+        + '<div class="banner-sub">'
+        + tight.map((f) => `${escapeHtml(f.model)}：${f.weights_gib} GiB / ${f.capacity_gb} GB`)
+            .join('；')
+        + '。建议先点「先试跑 1 个档位」，并把上下文档位调小。</div>';
+    }
+    box.innerHTML = html;
+    box.style.display = '';
   }
 
   async function loadConfig() {
@@ -254,7 +293,32 @@
       $('cfgAutoOpen').checked = !!cfg.auto_open_overview;
       state.autoOpen = !!cfg.auto_open_overview;
       updateCombo();
+      // 开箱即用：随包分发的 models/ 已在配置里，启动时自动扫描一次，
+      // 让零基础用户不必再手点「扫描」就能直接试跑。
+      await autoScanIfConfigured();
     } catch (e) { /* 后端未就绪时忽略 */ }
+  }
+
+  // 启动时自动扫描：仅在「已配置模型目录」且「尚无候选」时执行，不打断用户已有选择。
+  async function autoScanIfConfigured() {
+    const dir = $('scanDir').value.trim();
+    if (!dir || state.candidates.length) return false;
+    try {
+      const data = await API.scan(dir, $('scanRecursive').checked);
+      state.candidates = data.models || [];
+      state.ignored = data.ignored || [];
+      state.selected = {};
+      state.candidates.forEach((m) => { state.selected[m.gguf_path] = true; m.selected = true; });
+      renderScanResult();
+      renderSelectResult();
+      updateSelectedCount();
+      if (state.candidates.length) {
+        setStep('step3', true, '已发现 ' + state.candidates.length + ' 个模型 ✓');
+      }
+      return state.candidates.length > 0;
+    } catch (e) {
+      return false;   // 目录不存在等 → 交给用户手动扫描
+    }
   }
 
   function collectConfig() {
@@ -311,6 +375,29 @@
         '仍要继续吗？（建议先取消，去「① 开始」点「一键获取 llama.cpp」）');
       if (!ok) return;
     }
+
+    // 显式选了 mock：把代价讲清楚再放行（v1.1.2）。
+    // 旧版只靠一个可以视而不见的提示条，结果用户拿 mock 数据当成了真机性能。
+    if (cfg.runner_mode === 'mock') {
+      const ok = confirm('当前运行模式是 mock（合成数据）。\n\n' +
+        '· 不会加载任何模型，也不会启动 llama-server；\n' +
+        '· tps 与耗时是按模型名里的参数规模算出来的合成值；\n' +
+        '· 因此再大的模型（包括本机内存装不下的）也会显示「成功」。\n\n' +
+        '这份结果不能用来做选型或性能结论。仍要继续吗？');
+      if (!ok) return;
+    }
+
+    // 体积超限的模型：real 模式下会被直接跳过，提前说清楚（v1.1.2）
+    try {
+      const pre = await API.preview(models, cfg);
+      const bad = ((pre && pre.feasibility) || []).filter((f) => f.level === 'impossible');
+      if (bad.length && cfg.runner_mode !== 'mock') {
+        const ok = confirm('以下模型仅权重就超过本机内存，本次会被直接跳过（标记为「显存不足」）：\n\n' +
+          bad.map((f) => '· ' + f.model + '（' + f.weights_gib + ' GiB / 可用 ' + f.capacity_gb + ' GB）').join('\n') +
+          '\n\n仍要开始吗？');
+        if (!ok) return;
+      }
+    } catch (e) { /* 预检失败不阻塞启动 */ }
 
     try {
       await API.putConfig(cfg);

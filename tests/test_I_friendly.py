@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from _fixture import fixture_overview
 from _harness import PROJECT_ROOT, Suite
 
 try:
@@ -24,7 +25,6 @@ from ggufbench.engine import BenchEngine
 from ggufbench.errors import HINTS, ErrorCode
 from ggufbench.models import BenchConfig
 
-REPORT = PROJECT_ROOT / "reports" / "overview.html"
 APP_JS = PROJECT_ROOT / "web" / "app.js"
 INDEX = PROJECT_ROOT / "web" / "index.html"
 START_BAT = PROJECT_ROOT / "start.bat"
@@ -33,7 +33,9 @@ START_BAT = PROJECT_ROOT / "start.bat"
 FORBIDDEN = re.compile(r"minisforum|strix|ryzen\s+ai|radeon\s+8060", re.I)
 
 SCAN_EXTS = {".py", ".js", ".html", ".css", ".md", ".bat", ".json", ".mermaid", ".txt"}
-SKIP_DIRS = {".venv", ".git", ".workbuddy", "__pycache__", "reports", "node_modules"}
+# llama.cpp / models 是随包分发的第三方二进制与权重，dist 是打包输出，均不参与品牌词扫描
+SKIP_DIRS = {".venv", ".git", ".workbuddy", "__pycache__", "reports", "node_modules",
+             "llama.cpp", "models", "dist"}
 # 守卫脚本自身与被测产物要排除：前者含用于检测的禁用词字面量，后者是运行产物
 SKIP_FILES = {"test_I_friendly.py", "_results.json", "ONBOARDING-AUDIT.md"}
 
@@ -52,6 +54,8 @@ def _iter_project_files():
 
 def run() -> Suite:
     s = Suite("I. 零基础用户友好度")
+    report_path = fixture_overview()
+    report = report_path.read_text(encoding="utf-8")
 
     # =====================================================================
     #  1. 品牌词清除 + 署名（用户的硬性要求）
@@ -70,15 +74,14 @@ def run() -> Suite:
 
     s.eq("I1b", "包元信息里的作者署名", AUTHOR, "Boker")
 
-    if REPORT.exists():
-        report = REPORT.read_text(encoding="utf-8")
+    if report_path.exists():
         s.check("I1c", "报告页脚含作者署名",
                 ("by " + AUTHOR) in report)
         s.check("I1d", "报告内除 SVG 命名空间外不含任何外部 URL",
                 all("w3.org/2000/svg" in u for u in re.findall(r"https?://[^\s\"'<>]+", report)),
                 f"URL 样例={re.findall(r'https?://[^\\s\"\'<>]+', report)[:5]}")
-    else:
-        s.check("I1c", "存在 reports/overview.html", False, "缺报告")
+    else:  # pragma: no cover - 夹具构造失败
+        s.check("I1c", "存在夹具报告 overview.html", False, "缺报告")
 
     # =====================================================================
     #  2. 人话化错误解释（P1-2）
@@ -135,9 +138,8 @@ def run() -> Suite:
     s.eq("I5c", "显式 mock → mock",
           resolve_runner_mode(BenchConfig(runner_mode="mock")), "mock")
 
-    if REPORT.exists():
-        s.check("I5d", "mock 配置的报告含醒目 mock 警示条", "mock-banner" in report)
-        s.check("I5e", "报告含「这份报告怎么看」结论层", "这份报告怎么看" in report)
+    s.check("I5d", "mock 配置的报告含醒目 mock 警示条", "mock-banner" in report)
+    s.check("I5e", "报告含「这份报告怎么看」结论层", "这份报告怎么看" in report)
 
     # =====================================================================
     #  6. 交付约束：批处理与前端（P0-2 / P0-5 / P0-6 / P0-7）

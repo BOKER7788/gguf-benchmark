@@ -43,6 +43,28 @@ def _models(n=1):
     ]
 
 
+def _list_llama_server():
+    """跨平台列出名为 llama-server 的进程（Windows 用 tasklist，类 Unix 用 pgrep）。
+
+    返回进程描述列表；列表为空表示没有残留。
+    """
+    try:
+        if os.name == "nt":
+            out = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq llama-server.exe", "/NH"],
+                capture_output=True, text=True, timeout=20,
+            ).stdout
+            # 无匹配时 tasklist 会打印「信息: 没有运行的任务匹配指定标准。」
+            return [ln for ln in out.splitlines() if "llama-server" in ln.lower()]
+        out = subprocess.run(
+            ["pgrep", "-fl", "llama-server"], capture_output=True, text=True, timeout=20
+        ).stdout
+        return [ln for ln in out.splitlines() if ln.strip()]
+    except Exception:  # noqa: BLE001
+        # 查询工具不可用时不要误判为「有残留」
+        return []
+
+
 def _small_cfg(out_dir):
     return {
         "ctx_levels": [8000, 16000], "input_levels": [250, 500, 1000, 2000, 4000, 8000],
@@ -59,12 +81,21 @@ def run() -> Suite:
     cfg_backup = cfg_path.read_text(encoding="utf-8") if cfg_path.exists() else None
     tmp_out = tempfile.mkdtemp(prefix="ggufbench_qa_api_")
 
+    # 子进程输出必须落到文件，不能用「从不读取的 PIPE」：
+    # 后端的 StreamHandler 会持续往 stdout 写日志，匿名管道缓冲区写满后子进程
+    # 阻塞在 write 上，整个 asyncio 事件循环随之冻结（实测 mock 任务卡在 32/88，
+    # 之后的 A14 请求 30s 超时）。这是测试自身的缺陷，与被测后端无关。
+    server_log = Path(tmp_out) / "backend.log"
+    log_fh = server_log.open("wb")
     proc = subprocess.Popen(
         [PY, str(PROJECT_ROOT / "run.py"), "--port", str(SERVER_PORT), "--no-browser",
          "--log-level", "warning"],
-        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        cwd=str(PROJECT_ROOT), stdout=log_fh, stderr=subprocess.STDOUT,
     )
-    client = httpx.Client(base_url=f"http://127.0.0.1:{SERVER_PORT}", timeout=30.0)
+    # trust_env=False：不要继承 HTTP_PROXY/HTTPS_PROXY。否则在设了代理的机器上，
+    # 连 127.0.0.1 的回环请求也会被送去代理，造成不稳定超时。
+    client = httpx.Client(base_url=f"http://127.0.0.1:{SERVER_PORT}", timeout=30.0,
+                          trust_env=False)
     try:
         if not _wait_health(client):
             s.check("F0", "后端可启动", False, "health 探测超时")
@@ -244,9 +275,9 @@ def run() -> Suite:
         s.check("F-A11b", "A11 中断后任务停止", stopped, f"state={stt.get('state')}")
 
         # 中断后无残留 llama-server 进程 & 端口释放
-        pg = subprocess.run(["pgrep", "-fl", "llama-server"], capture_output=True, text=True)
-        s.check("F-A11c", "中断后无残留 llama-server 进程", pg.stdout.strip() == "",
-                f"pgrep={pg.stdout.strip()}")
+        leftovers = _list_llama_server()
+        s.check("F-A11c", "中断后无残留 llama-server 进程", not leftovers,
+                f"leftovers={leftovers}")
         free = True
         try:
             t = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -291,6 +322,11 @@ def run() -> Suite:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             proc.kill()
+            proc.wait(timeout=5)
+        try:
+            log_fh.close()
+        except Exception:  # noqa: BLE001
+            pass
         if cfg_backup is not None:
             cfg_path.write_text(cfg_backup, encoding="utf-8")
 
@@ -305,11 +341,14 @@ def run() -> Suite:
     r = make_runner(cfg_auto_missing, meta, 4000, Path(tmp_out))
     s.check("F11", "auto 且 llama-server 不存在 → 降级 MockRunner", isinstance(r, MockRunner),
             f"got={type(r).__name__}")
-    real_exe = "/bin/echo"
+    # 「存在即可用」的判定只做 Path.exists()，因此这里用一个本机必然存在的
+    # 可执行文件代表 llama-server。原实现硬编码 POSIX 专属的 "/bin/echo"，
+    # 在 Windows 上不存在 → 判定为降级，F11b 必然失败（测试自身缺陷）。
+    real_exe = sys.executable
     cfg_auto_found = BenchConfig(runner_mode="auto", llama_server_path=real_exe)
     r2 = make_runner(cfg_auto_found, meta, 4000, Path(tmp_out))
     s.check("F11b", "auto 且 llama-server 存在 → RealRunner", isinstance(r2, RealRunner),
-            f"got={type(r2).__name__}")
+            f"got={type(r2).__name__} exe={real_exe}")
     s.check("F11c", "runner_mode=real 强制 RealRunner",
             isinstance(make_runner(BenchConfig(runner_mode="real"), meta, 4000, Path(tmp_out)), RealRunner))
 

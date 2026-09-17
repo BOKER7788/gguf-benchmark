@@ -20,6 +20,11 @@ PROJECT_ROOT = HERE.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# 最近一次构造的 Suite。run_guarded 在模块抛异常时改用它，
+# 这样异常之前已经记录的断言不会被丢掉（旧实现会整块丢弃，导致
+# 「明明过了 35 条却只报 0/1」，定位成本极高）。
+_LAST_SUITE: "Suite | None" = None
+
 
 @dataclass
 class Result:
@@ -38,6 +43,11 @@ class Suite:
     name: str
     results: list[Result] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        # 记录最近一次构造的 Suite，供 run_guarded 在异常路径复用
+        global _LAST_SUITE
+        _LAST_SUITE = self
 
     # ---- 断言 ----
     def check(self, cid: str, name: str, cond: bool, detail: str = "") -> bool:
@@ -75,10 +85,19 @@ class Suite:
 
 
 def run_guarded(name: str, fn) -> Suite:
-    """安全执行一个测试模块的 ``run()``；异常记为一条 FAIL 而非中断整体。"""
+    """安全执行一个测试模块的 ``run()``；异常记为一条 FAIL 而非中断整体。
+
+    与旧实现的区别：模块抛异常时，**保留该模块已经记录的断言结果**，再把异常
+    追加为一条 FAIL。这样"35 条通过后崩在第 36 条"会如实报 35/36+EXC，而不是
+    只剩一条 EXC。
+    """
+    global _LAST_SUITE
+    _LAST_SUITE = None
     try:
-        return fn()
+        result = fn()
+        return result if isinstance(result, Suite) else (_LAST_SUITE or Suite(name))
     except Exception:  # noqa: BLE001
-        s = Suite(name)
+        partial = _LAST_SUITE
+        s = partial if (partial is not None and partial.results) else Suite(name)
         s.check("EXC", f"{name} 执行异常", False, traceback.format_exc())
         return s

@@ -17,15 +17,16 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from _harness import PROJECT_ROOT, Suite
+from _fixture import fixture_overview
+from _harness import Suite
 
 
 def run() -> Suite:
     s = Suite("H. 曲线悬停数值标签")
 
-    overview = PROJECT_ROOT / "reports" / "overview.html"
-    if not overview.exists():  # pragma: no cover - 依赖前序模块产物
-        s.check("H0", "存在 reports/overview.html", False, f"缺失: {overview}")
+    overview = fixture_overview()
+    if not overview.exists():  # pragma: no cover - 夹具构造失败
+        s.check("H0", "存在夹具报告 overview.html", False, f"缺失: {overview}")
         return s
 
     txt = overview.read_text(encoding="utf-8")

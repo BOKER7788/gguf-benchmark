@@ -20,7 +20,14 @@ MAX_LEVEL_VALUE = 10_000_000
 Precision = Literal["w8a8", "w4a8"]
 # 失败原因枚举（全大写，空串表示无失败）
 FailReason = Literal["OOM_GPU", "MODEL_FAIL", "TIMEOUT", "OTHER", ""]
-ModelStatus = Literal["pending", "running", "done", "skipped", "aborted"]
+ModelStatus = Literal["pending", "running", "done", "skipped", "failed", "aborted"]
+"""模型在本次任务中的状态。
+
+``failed`` 为 v1.1.2 新增：引擎会把「体积超出内存、直接跳过」的模型标为
+``failed``。此前枚举里没有这个值，而引擎写状态时不做赋值校验（pydantic
+默认 ``validate_assignment=False``），于是模型对象会带着一个非法值继续流转，
+再经由 ``/api/tasks/preview`` 之类的接口回传时被服务端拒绝（HTTP 422）。
+"""
 TaskState = Literal["idle", "running", "aborting", "done", "error"]
 
 # 失败原因 → 中文可读名（渲染用，US-07）

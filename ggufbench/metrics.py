@@ -6,6 +6,11 @@ from statistics import median as _stat_median
 
 from .models import BenchmarkPoint, BenchConfig, ModelMeta, RunResult
 
+# ---- 输入长度防呆阈值 ----
+# 提示词构造用 /tokenize 校准到误差 < 2%，因此实测 prompt_n 低于目标 80% 即视为异常
+# （正常情况实测≈目标；命中 KV cache 时实测会塌到个位数）。
+_PREFILL_TOLERANCE = 0.8
+
 # ---- fail_reason 关键词表（架构 §7 ⑥）----
 _OOM_KEYWORDS = (
     "out of memory",
@@ -66,10 +71,38 @@ class MetricsParser:
         input_tokens: int,
         config: BenchConfig,
     ) -> BenchmarkPoint:
-        """由多次正式运行取中位数，构造成功数据点。"""
+        """由多次正式运行取中位数，构造成功数据点。
+
+        防呆（P0 回归守卫）：``input_tokens`` 是本次请求的**目标** token 数，构造
+        提示词时已用 ``/tokenize`` 校准到误差 < 2%。若实测回来的 ``prompt_n`` 明显
+        低于目标，说明服务端并没有真正 prefill 整段输入（典型原因是命中 KV cache：
+        ``cache_prompt`` 未关闭时，预热留下的缓存会让 ``prompt_n`` 只剩几个新增
+        token）。这种数据一旦落进报告就是"看起来成功、数值偏低 50 倍"的静默错误，
+        因此这里显式判为失败，而不是照单全收。
+        """
+        measured = int(round(cls.median([float(r.prompt_tokens) for r in runs])))
+        if input_tokens > 0 and measured < input_tokens * _PREFILL_TOLERANCE:
+            return BenchmarkPoint(
+                model_name=meta.model_name,
+                model_size=meta.model_size,
+                precision=meta.precision,
+                n_chip=meta.n_chip,
+                ctx_size=ctx_size,
+                input_tokens=input_tokens,
+                output_tokens=config.output_tokens,
+                success=False,
+                error_msg=(
+                    f"输入 token 数异常：目标 {input_tokens}，实测仅 {measured}。"
+                    "通常是推理引擎复用了上一次请求的 KV cache（prompt 缓存未关闭），"
+                    "导致 prefill 吞吐被严重低估；请确认 llama-server 请求带 "
+                    "cache_prompt=false 后重测。"
+                ),
+                fail_reason="OTHER",
+                skipped=False,
+            )
+
         prefill_list = [r.prompt_tokens / (r.prompt_ms / 1000.0) for r in runs if r.prompt_ms > 0]
         decode_list = [r.predicted_tokens / (r.predicted_ms / 1000.0) for r in runs if r.predicted_ms > 0]
-        prompt_tokens_list = [float(r.prompt_tokens) for r in runs]
 
         return BenchmarkPoint(
             model_name=meta.model_name,
@@ -77,7 +110,7 @@ class MetricsParser:
             precision=meta.precision,
             n_chip=meta.n_chip,
             ctx_size=ctx_size,
-            input_tokens=int(round(cls.median(prompt_tokens_list))) or input_tokens,
+            input_tokens=measured or input_tokens,
             output_tokens=config.output_tokens,
             prefill_tps=round(cls.median(prefill_list), 2),
             decode_tps=round(cls.median(decode_list), 2),

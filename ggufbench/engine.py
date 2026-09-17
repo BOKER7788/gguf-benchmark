@@ -9,6 +9,7 @@ from typing import Callable, Optional
 
 from . import PROJECT_ROOT, __version__
 from .hardware import HardwareCollector, get_collector
+from .feasibility import Verdict, judge
 from .logging_utils import append_task_log, get_logger, get_model_log_dir
 from .metrics import MetricsParser
 from .models import (
@@ -45,7 +46,10 @@ class BenchEngine:
     ) -> None:
         self.config: BenchConfig = config
         self._runner_factory: RunnerFactory = runner_factory
-        self._hardware: HardwareCollector = hardware or get_collector(runner_mode=config.runner_mode)
+        # 硬件采集与 runner_mode 无关（v1.1.2）：mock 只是不调用推理，
+        # 这台机器本身没变；旧版在 mock 下强制通用采集器，导致报告显示
+        # 「内存大小：未知」，恰好抹掉了判断「模型放不放得下」所需的输入。
+        self._hardware: HardwareCollector = hardware or get_collector()
         self._prompt_builder: PromptBuilder = prompt_builder or PromptBuilder(config.prompt_text)
         self._on_event: Optional[EventCallback] = on_event
         self._report_builder = report_builder
@@ -57,6 +61,9 @@ class BenchEngine:
         self.launch_cmds: dict[str, dict[int, list[str]]] = {}
         self.hardware: HardwareInfo = HardwareInfo()
         self.reports: list[Path] = []
+        # 跑前可行性预判结果（v1.1.2）：模型名 → Verdict
+        self.feasibility: dict[str, Verdict] = {}
+        self.skipped_models: list[str] = []
 
         self._abort = threading.Event()
         self._current_runner: Optional[LlamaServerRunner] = None
@@ -121,15 +128,34 @@ class BenchEngine:
 
         try:
             self.hardware = self._hardware.collect()
+            verdicts = self._preflight(models)
             for index, meta in enumerate(models, start=1):
                 if self._abort.is_set():
                     break
                 self.status.model_index = index
                 self.status.current_model = meta.model_name
-                meta.status = "running"
                 append_task_log(self.output_dir, f"开始模型 {meta.model_name} ({index}/{len(models)})")
                 self._emit({"type": "state", "status": self.status.model_dump()})
 
+                verdict = verdicts.get(meta.model_name)
+                if (
+                    verdict is not None
+                    and verdict.is_impossible
+                    and self.status.runner_mode_effective == "real"
+                ):
+                    # 权重体积已超过物理内存：真跑只会读 200+ GB 把机器拖死几千秒，
+                    # 最后留下一堆难以解释的失败点。直接给出可解释的结论并跳过。
+                    append_task_log(
+                        self.output_dir,
+                        f"[WARN] 跳过 {meta.model_name}：{verdict.detail}",
+                        level="WARNING",
+                    )
+                    self.points_by_model[meta.model_name] = self._skip_infeasible(meta, matrix, verdict)
+                    self.launch_cmds[meta.model_name] = {}
+                    meta.status = "failed"
+                    continue
+
+                meta.status = "running"
                 model_points, launch = self._run_model(meta, matrix)
                 self.points_by_model[meta.model_name] = model_points
                 self.launch_cmds[meta.model_name] = launch
@@ -143,6 +169,8 @@ class BenchEngine:
 
             self.status.state = "done"
             self.status.message = "已中断" if self._abort.is_set() else "全部完成"
+            if self.skipped_models and not self._abort.is_set():
+                self.status.message += f"（已跳过 {len(self.skipped_models)} 个体积超限的模型）"
             self.status.percent = 100.0 if not self._abort.is_set() else self.status.percent
             append_task_log(self.output_dir, f"任务结束: {self.status.message}")
         except Exception as exc:  # noqa: BLE001 - 顶层兜底，避免线程静默死亡
@@ -165,6 +193,62 @@ class BenchEngine:
                 pass
 
     # ---- 单模型执行 ----
+    # ---- 跑前可行性预判（v1.1.2）----
+    def _preflight(self, models: list[ModelMeta]) -> dict[str, Verdict]:
+        """在启动任何推理之前，先算清「这个模型装不装得下」。
+
+        旧版把这一步留给用户肉眼判断，结果 224 GB 的模型在 64 GB 机器上也能
+        「跑出成绩」（mock 模式下尤其没有任何阻拦）。这里把权重体积与本机内存
+        的对比写成结论：既进任务日志，也进报告，真实模式下还会直接拦截。
+        """
+        verdicts: dict[str, Verdict] = {}
+        for meta in models:
+            verdict = judge(meta, self.hardware)
+            verdicts[meta.model_name] = verdict
+            self.feasibility[meta.model_name] = verdict
+            if verdict.needs_attention:
+                append_task_log(self.output_dir, "可行性预判 | " + verdict.short(), level="WARNING")
+
+        impossible = [v for v in verdicts.values() if v.is_impossible]
+        if impossible:
+            names = "、".join(v.model_name for v in impossible)
+            if self.status.runner_mode_effective == "real":
+                self.status.message = f"以下模型体积超出本机内存，将直接跳过：{names}"
+            else:
+                self.status.message = (
+                    f"注意：{names} 的体积超出本机内存；"
+                    "本次是 mock（合成数据）所以会显示成功，切到 real 模式将失败。"
+                )
+            append_task_log(self.output_dir, f"[WARN] {self.status.message}", level="WARNING")
+        return verdicts
+
+    def _skip_infeasible(
+        self, meta: ModelMeta, matrix: dict, verdict: Verdict
+    ) -> list[BenchmarkPoint]:
+        """为「物理上装不下」的模型生成可解释的失败点，替代漫长的无效加载。"""
+        result = RunResult(
+            ok=False,
+            exit_code=-1,
+            stderr_tail=(
+                f"模型体积超限：{verdict.detail}"
+                "（本工具在真实模式下不会尝试加载，以免长时间卡死）"
+            ),
+        )
+        points: list[BenchmarkPoint] = []
+        idx = 0
+        for ctx in sorted(matrix["per_ctx"].keys()):
+            for inp in matrix["per_ctx"][ctx]:
+                point = MetricsParser.failed_point(
+                    meta, ctx, inp, result, self.config, reason="OOM_GPU"
+                )
+                points.append(point)
+                self._record_point(point, idx)
+                idx += 1
+        self.skipped_models.append(meta.model_name)
+        self.status.consec_fail = len(points)
+        self._emit({"type": "state", "status": self.status.model_dump()})
+        return points
+
     def _run_model(
         self,
         meta: ModelMeta,

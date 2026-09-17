@@ -115,7 +115,7 @@ class RealRunner(LlamaServerRunner):
     def wait_ready(self, timeout_s: float = DEFAULT_READY_TIMEOUT_S) -> bool:
         """轮询 ``/health``（架构 §7 ③）。"""
         deadline = time.time() + timeout_s
-        with httpx.Client(timeout=_HEALTH_TIMEOUT_S) as client:
+        with httpx.Client(timeout=_HEALTH_TIMEOUT_S, trust_env=False) as client:
             while time.time() < deadline:
                 if not self.is_alive():
                     return False
@@ -137,7 +137,7 @@ class RealRunner(LlamaServerRunner):
     # ---- 推理接口 ----
     def tokenize(self, text: str) -> int:
         """POST ``/tokenize`` 返回 token 数。"""
-        with httpx.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=30.0, trust_env=False) as client:
             resp = client.post(f"{self._base_url}/tokenize", json={"content": text})
             resp.raise_for_status()
             data = resp.json()
@@ -154,10 +154,15 @@ class RealRunner(LlamaServerRunner):
             "temperature": 0.0,
             "top_k": 1,
             "stream": False,
+            # 必须显式关闭 prompt 缓存：llama-server 默认 cache_prompt=true，
+            # 而引擎会先做一次「同 prompt」预热，正式测量请求的整段 prompt 会按
+            # 最长公共前缀命中上一轮留下的 KV cache，timings.prompt_n 于是只剩
+            # 几个新增 token（实测 251 → 4），prefill_tps 被低估约 50 倍。
+            "cache_prompt": False,
         }
         timeout = self.config.prefill_timeout_s + _REQUEST_TIMEOUT_PAD_S
         try:
-            with httpx.Client(timeout=timeout) as client:
+            with httpx.Client(timeout=timeout, trust_env=False) as client:
                 resp = client.post(f"{self._base_url}/completion", json=payload)
                 if resp.status_code != 200:
                     return RunResult(

@@ -29,6 +29,7 @@ MODULES = [
     ("G", "工程卫生", "test_G_hygiene"),
     ("H", "曲线悬停数值标签", "test_H_tooltip"),
     ("I", "零基础用户友好度", "test_I_friendly"),
+    ("J", "体量可行性与 mock 免责声明", "test_J_feasibility"),
 ]
 
 

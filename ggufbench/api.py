@@ -17,6 +17,7 @@ from . import AUTHOR, PROJECT_URL, __version__
 from .config_store import ConfigStore
 from .engine import BenchEngine
 from .errors import HINTS, ApiError, ErrorCode, error_body, hint_for, ok_body
+from .feasibility import judge_all, memory_capacity_gb, worst_level
 from .friendly import (
     LlamaDownloader,
     open_in_file_manager,
@@ -24,6 +25,7 @@ from .friendly import (
     pick_file,
     recommended_config,
 )
+from .hardware import collect_cached
 from .logging_utils import get_logger
 from .models import BenchConfig, BenchmarkPoint, ModelMeta
 from .report.builder import ReportBuilder
@@ -180,17 +182,36 @@ def register_routes(app: FastAPI, store: ConfigStore, task_manager: TaskManager)
                 logger.warning("tokenize 代理失败，回退估算: %s", exc)
         return ok_body(token_count=_estimate_tokens(req.text))
 
-    # ---- A7 任务预览（矩阵裁剪）----
+    # ---- A7 任务预览（矩阵裁剪 + 体量可行性预判）----
     @app.post("/api/tasks/preview")
     async def preview(req: PreviewRequest) -> dict:
         cfg = _merge_config(store, req.config)
         matrix = BenchEngine.build_matrix(cfg.ctx_levels, cfg.input_levels)
         total = matrix["total"]
         per_model = [{"model": m.model_name, "points": total} for m in req.models]
+
+        # 体量/内存可行性（v1.1.2）：让界面在「开跑之前」就能提示装不下的模型，
+        # 而不是等用户跑完一轮合成数据才发现结论不可信。
+        hw = collect_cached()
+        verdicts = judge_all(req.models, hw)
+        feasibility = [
+            {
+                "model": v.model_name,
+                "level": v.level,
+                "weights_gib": round(v.weights_gib, 2),
+                "capacity_gb": round(v.capacity_gb, 1),
+                "detail": v.detail,
+                "reasons": v.reasons,
+            }
+            for v in verdicts
+        ]
         return ok_body(
             total_points=total * max(1, len(req.models)) if req.models else 0,
             per_model=per_model,
             matrix={"per_ctx": {str(k): v for k, v in matrix["per_ctx"].items()}, "total": total},
+            memory_gb=round(memory_capacity_gb(hw), 1),
+            feasibility=feasibility,
+            feasibility_worst=worst_level(verdicts),
         )
 
     # ---- A8 创建并启动任务 ----

@@ -11,6 +11,11 @@ echo   %APP_NAME% - by Boker
 echo ============================================
 echo   本地大模型批量性能测试工具
 echo.
+echo   本包已内置推理引擎与默认模型，无需额外下载：
+echo     llama.cpp\llama-server.exe   （Windows Vulkan 版）
+echo     models\Qwen3.5-0.8B-Q8_0.gguf
+echo   启动后直接点「先试跑 1 个档位」即可体验完整流程。
+echo.
 
 REM =====================================================================
 REM  Python 发现
@@ -132,13 +137,16 @@ echo [INFO] 后台启动后端服务 ...
 start "%APP_NAME% Backend" "!PYW!" run.py
 
 REM ---- 等待后端就绪（最多约 15 次探测）----
+REM 等待必须用 ping 而不是 timeout.exe：timeout 需要真实控制台 stdin，
+REM 被别的脚本/自动化调用（stdin 重定向）时会立即报
+REM "Input redirection is not supported" 并退出，导致 15 次探测在 1 秒内空转完。
 set "READY=0"
 for /L %%i in (1,1,15) do (
   if "!READY!"=="0" (
     set "CODE="
     for /f "delims=" %%s in ('powershell -NoProfile -Command "try{(Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 %BACKEND_URL%api/health).StatusCode}catch{0}"') do set "CODE=%%s"
     if "!CODE!"=="200" set "READY=1"
-    if "!READY!"=="0" timeout /t 1 /nobreak >nul
+    if "!READY!"=="0" ping -n 2 127.0.0.1 >nul 2>nul
   )
 )
 

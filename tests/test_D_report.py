@@ -1,8 +1,11 @@
 """D. 报告正确性（P0）——与黄金样本逐字段比对。
 
-解析 ``reports/overview.html`` 与 ``reports/*.html``：
+解析**本模块自建的夹具报告**（见 ``tests/_fixture.py``）：
 零外部引用、DATA 14 字段、10 列表头、内联 CSS/JS/SVG、硬件区块、
 fail_reason 枚举、OOM 横幅、启动参数留档、文件名冲突后缀。
+
+夹具而非 ``reports/``：该目录属运行产物、不随发布包分发，旧版直接读它
+在干净解压后必然 FileNotFoundError。
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ import re
 import tempfile
 from pathlib import Path
 
+from _fixture import EXPECTED_POINTS_PER_MODEL, FIXTURE_MODELS, fixture_dir
 from _harness import PROJECT_ROOT, Suite
 
 from ggufbench.models import BenchConfig, BenchmarkPoint, HardwareInfo, ModelMeta
@@ -23,7 +27,7 @@ GOLDEN = Path(os.environ.get(
     "GGUF_BENCH_GOLDEN",
     PROJECT_ROOT / "docs" / "golden-sample" / "395-result.html",
 ))
-REPORTS = PROJECT_ROOT / "reports"
+EXPECTED_TOTAL_POINTS = EXPECTED_POINTS_PER_MODEL * len(FIXTURE_MODELS)
 EXPECTED_FIELDS = [
     "model_name", "model_size", "precision", "n_chip", "ctx_size", "input_tokens",
     "output_tokens", "prefill_tps", "decode_tps", "vision_fps", "prefill_time_ms",
@@ -60,8 +64,9 @@ def _external_refs(txt: str) -> list[str]:
 
 def run() -> Suite:
     s = Suite("D. 报告正确性")
-    overview = (REPORTS / "overview.html").read_text(encoding="utf-8")
-    model_files = sorted(p for p in REPORTS.glob("*.html") if p.name != "overview.html")
+    reports_dir = fixture_dir()
+    overview = (reports_dir / "overview.html").read_text(encoding="utf-8")
+    model_files = sorted(p for p in reports_dir.glob("*.html") if p.name != "overview.html")
     s.check("D0", "存在 overview.html 与至少 1 个模型报告", bool(model_files), f"model_files={model_files}")
 
     # 黄金样本（上游参考报告）为可选输入：
@@ -162,17 +167,17 @@ def run() -> Suite:
         s.check("D10b", "旧文件不被覆盖", p1.read_text(encoding="utf-8") == "first")
 
     # ---- D11 报告点数与模型分组一致 ----
-    s.eq("D11", "总览点数 == 模型数 × 49", len(ov_data), 98)
+    s.eq("D11", "总览点数 == 模型数 × 49", len(ov_data), EXPECTED_TOTAL_POINTS)
     for p in model_files:
         md = _extract_data(p.read_text(encoding="utf-8"))
-        s.eq("D11b", f"{p.name} 点数 == 49", len(md), 49)
+        s.eq("D11b", f"{p.name} 点数 == 49", len(md), EXPECTED_POINTS_PER_MODEL)
 
     # ---- D12 points.json / all_points.json 结构 ----
-    allp = json.loads((REPORTS / "all_points.json").read_text(encoding="utf-8"))
-    s.eq("D12", "all_points.json 点数 == 98", len(allp["points"]), 98)
+    allp = json.loads((reports_dir / "all_points.json").read_text(encoding="utf-8"))
+    s.eq("D12", "all_points.json 点数 == 98", len(allp["points"]), EXPECTED_TOTAL_POINTS)
     s.check("D12b", "all_points.json 含 models/hardware/config/llama_version",
             all(k in allp for k in ("models", "hardware", "config", "llama_version")))
-    model_dirs = [d for d in REPORTS.iterdir() if d.is_dir()]
+    model_dirs = [d for d in reports_dir.iterdir() if d.is_dir()]
     s.check("D12c", "每个模型目录含 points.json",
             model_dirs and all((d / "points.json").exists() for d in model_dirs),
             f"dirs={[d.name for d in model_dirs]}")

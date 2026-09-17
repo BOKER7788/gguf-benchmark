@@ -76,10 +76,15 @@ class ReportBuilder:
     # ---- 落盘 ----
     @staticmethod
     def write(path: Path, html: str) -> Path:
-        """写出 HTML 文件。"""
+        """写出 HTML 文件。
+
+        ``newline="\\n"`` 是刻意加的：文本模式下 Windows 会把 ``\\n`` 翻译成
+        ``\\r\\n``，导致同一份报告在不同 OS 上字节不一致，且会打断按 ``;\\n``
+        切片的自带前端 harness（tests/frontend_harness.js 等）。
+        """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(html, encoding="utf-8")
+        path.write_text(html, encoding="utf-8", newline="\n")
         logger.info("报告已写入: %s", path)
         return path
 
@@ -116,7 +121,8 @@ class ReportBuilder:
             "llama_version": cfg.llama_version,
         }
         path = model_dir / "points.json"
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8",
+                        newline="\n")
         return path
 
     @staticmethod
@@ -136,7 +142,8 @@ class ReportBuilder:
             "llama_version": cfg.llama_version,
         }
         path = Path(output_dir) / "all_points.json"
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8",
+                        newline="\n")
         return path
 
     # ---- 离线重建 ----
